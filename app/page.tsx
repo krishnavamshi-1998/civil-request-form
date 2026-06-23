@@ -36,31 +36,41 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Separate, independent string states to handle user search inputs
+  // Local state to hold text typed into the search filters
   const [supervisorFilter, setSupervisorFilter] = useState('');
   const [itemFilters, setItemFilters] = useState<{ [key: number]: string }>({});
 
   // Fetch dropdown collections on page load
-  useEffect(() => {
-    async function fetchDropdownData() {
-      try {
-        const res = await fetch('/api/dropdowns');
-        const data = await res.json();
-        if (data.success) {
-          setSupervisors(data.supervisors || []);
-          setTools(data.tools || []);
-          setMachines(data.machines || []);
-        }
-      } catch (err) {
-        console.error('Failed to load form dropdowns:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchDropdownData();
-  }, []);
+  // FIND THIS BLOCK IN YOUR app/page.tsx AND REPLACE IT:
+useEffect(() => {
+  async function fetchDropdownData() {
+    try {
+      const res = await fetch('/api/dropdowns');
+      const data = await res.json();
+      if (data.success) {
+        setSupervisors(data.supervisors || []);
+        
+        // FIX: If your API returns a simple array of strings, map them correctly here
+        const formattedTools = (data.tools || []).map((item: any) => 
+          typeof item === 'string' ? { name: item, stock: 'Available' } : item
+        );
+        const formattedMachines = (data.machines || []).map((item: any) => 
+          typeof item === 'string' ? { name: item, stock: 'Available' } : item
+        );
 
-  // Filter lists based on what is typed (matches characters ANYWHERE in the string)
+        setTools(formattedTools);
+        setMachines(formattedMachines);
+      }
+    } catch (err) {
+      console.error('Failed to load form dropdowns:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+  fetchDropdownData();
+}, []);
+
+  // Filter supervisors matching text ANYWHERE
   const filteredSupervisors = supervisors.filter(name => 
     name.toLowerCase().includes(supervisorFilter.toLowerCase())
   );
@@ -73,14 +83,19 @@ export default function RequestForm() {
   const handleRemoveItemRow = (index: number) => {
     if (items.length > 1) {
       setItems(items.filter((_, i) => i !== index));
+      // Clean up search filter state for the deleted row
+      const updatedFilters = { ...itemFilters };
+      delete updatedFilters[index];
+      setItemFilters(updatedFilters);
     }
   };
 
   const updateItemField = (index: number, field: keyof FormItem, value: any) => {
     const updated = [...items];
     if (field === 'type') {
+      // Reset selected item and its search box when changing category
       updated[index] = { ...updated[index], type: value, itemName: '' };
-      setItemFilters({ ...itemFilters, [index]: '' }); // clear search term for this row
+      setItemFilters({ ...itemFilters, [index]: '' });
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
@@ -108,6 +123,7 @@ export default function RequestForm() {
 
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
+        // Reset inputs on completion
         setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
         setSupervisorFilter('');
         setItemFilters({});
@@ -125,7 +141,7 @@ export default function RequestForm() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen bg-gray-100">
-        <p className="text-gray-600 font-semibold text-lg">Syncing Live Master Inventory...</p>
+        <p className="text-gray-600 font-semibold text-lg">Syncing Master Inventory Options...</p>
       </div>
     );
   }
@@ -141,13 +157,12 @@ export default function RequestForm() {
           {/* Section: Header Block Context */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
-            {/* SUPERVISOR PANEL */}
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Supervisor</label>
-              {/* Simple filter box sitting cleanly above the select list */}
+            {/* SUPERVISOR DROPDOWN WITH ADDED SEARCH BOX */}
+            <div className="flex flex-col">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
               <input
                 type="text"
-                placeholder="🔍 Type to filter list..."
+                placeholder="🔍 Type to filter supervisors..."
                 className="w-full bg-gray-50 border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 mb-1"
                 value={supervisorFilter}
                 onChange={(e) => setSupervisorFilter(e.target.value)}
@@ -207,16 +222,15 @@ export default function RequestForm() {
             <div className="space-y-4">
               {items.map((item, index) => {
                 const masterList = item.type === 'Tools' ? tools : machines;
-                const rowFilterText = itemFilters[index] || '';
+                const currentFilter = itemFilters[index] || '';
                 
-                // Keep values matching keyword anywhere inside item.name
+                // Live filter options list looking anywhere inside item.name string
                 const filteredItems = masterList.filter(availItem =>
-                  availItem.name.toLowerCase().includes(rowFilterText.toLowerCase())
+                  availItem.name.toLowerCase().includes(currentFilter.toLowerCase())
                 );
-
+                
                 return (
                   <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-gray-50 p-4 rounded-md border relative">
-                    
                     <div className="w-full sm:w-1/4">
                       <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
                       <select
@@ -229,14 +243,14 @@ export default function RequestForm() {
                       </select>
                     </div>
 
-                    {/* SELECT ITEM DROPDOWN PANEL WITH A SEARCH FILTER BOX */}
-                    <div className="w-full sm:w-2/4 space-y-1">
-                      <label className="block text-xs font-medium text-gray-600">Item Selection</label>
+                    {/* ORIGINAL SELECT DROPDOWN WITH AN INLINE SEARCH FILTER BOX ABOVE IT */}
+                    <div className="w-full sm:w-2/4 flex flex-col">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection</label>
                       <input
                         type="text"
-                        placeholder={`🔍 Filter ${item.type.toLowerCase()}...`}
+                        placeholder={`🔍 Type to filter ${item.type.toLowerCase()}...`}
                         className="w-full bg-white border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 mb-1"
-                        value={rowFilterText}
+                        value={currentFilter}
                         onChange={(e) => setItemFilters({ ...itemFilters, [index]: e.target.value })}
                       />
                       <select
@@ -248,7 +262,7 @@ export default function RequestForm() {
                         <option value="">-- Choose {item.type} --</option>
                         {filteredItems.map((availItem, i) => (
                           <option key={i} value={availItem.name}>
-                            {availItem.name} (Stock: {availItem.stock})
+                            {availItem.name} (Available: {availItem.stock})
                           </option>
                         ))}
                       </select>
@@ -269,13 +283,7 @@ export default function RequestForm() {
                     {items.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => {
-                          handleRemoveItemRow(index);
-                          // clean up local storage dictionary key references
-                          const updatedFilters = { ...itemFilters };
-                          delete updatedFilters[index];
-                          setItemFilters(updatedFilters);
-                        }}
+                        onClick={() => handleRemoveItemRow(index)}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-9 sm:mb-0.5"
                       >
                         Remove
