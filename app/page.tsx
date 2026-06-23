@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface DropdownItem {
   name: string;
@@ -36,14 +36,9 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Custom Search UI Overlay Dropdown Controllers
-  const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
-  const [itemSearchText, setItemSearchText] = useState<{ [key: number]: string }>({});
-  
-  const [showSupDropdown, setShowSupDropdown] = useState(false);
-  const [supSearchText, setSupSearchText] = useState('');
-
-  const supervisorRef = useRef<HTMLDivElement>(null);
+  // Separate, independent string states to handle user search inputs
+  const [supervisorFilter, setSupervisorFilter] = useState('');
+  const [itemFilters, setItemFilters] = useState<{ [key: number]: string }>({});
 
   // Fetch dropdown collections on page load
   useEffect(() => {
@@ -65,23 +60,12 @@ export default function RequestForm() {
     fetchDropdownData();
   }, []);
 
-  // Close custom drop panels when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (supervisorRef.current && !supervisorRef.current.contains(event.target as Node)) {
-        setShowSupDropdown(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Filter Supervisor Array matching string ANYWHERE
+  // Filter lists based on what is typed (matches characters ANYWHERE in the string)
   const filteredSupervisors = supervisors.filter(name => 
-    name.toLowerCase().includes(supSearchText.toLowerCase())
+    name.toLowerCase().includes(supervisorFilter.toLowerCase())
   );
 
-  // Dynamic Row Handlers
+  // Dynamic Array Handlers
   const handleAddItemRow = () => {
     setItems([...items, { type: 'Tools', itemName: '', quantity: 1 }]);
   };
@@ -94,7 +78,12 @@ export default function RequestForm() {
 
   const updateItemField = (index: number, field: keyof FormItem, value: any) => {
     const updated = [...items];
-    updated[index] = { ...updated[index], [field]: value };
+    if (field === 'type') {
+      updated[index] = { ...updated[index], type: value, itemName: '' };
+      setItemFilters({ ...itemFilters, [index]: '' }); // clear search term for this row
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
     setItems(updated);
   };
 
@@ -120,8 +109,8 @@ export default function RequestForm() {
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
         setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
-        setSupSearchText('');
-        setItemSearchText({});
+        setSupervisorFilter('');
+        setItemFilters({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
       } else {
         throw new Error(data.error || 'Unknown submission server error.');
@@ -152,42 +141,28 @@ export default function RequestForm() {
           {/* Section: Header Block Context */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
-            {/* SEARCHABLE SUPERVISOR DROPDOWN */}
-            <div ref={supervisorRef} className="relative">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
+            {/* SUPERVISOR PANEL */}
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-700">Supervisor</label>
+              {/* Simple filter box sitting cleanly above the select list */}
               <input
                 type="text"
-                placeholder="Type to search supervisor..."
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                value={supSearchText}
-                onFocus={() => setShowSupDropdown(true)}
-                onChange={(e) => {
-                  setSupSearchText(e.target.value);
-                  setShowSupDropdown(true);
-                  setFormData({ ...formData, supervisor: '' }); // Reset until selected
-                }}
+                placeholder="🔍 Type to filter list..."
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 mb-1"
+                value={supervisorFilter}
+                onChange={(e) => setSupervisorFilter(e.target.value)}
               />
-              {showSupDropdown && (
-                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                  {filteredSupervisors.length === 0 ? (
-                    <div className="p-2 text-sm text-gray-500">No match found</div>
-                  ) : (
-                    filteredSupervisors.map((name, i) => (
-                      <div
-                        key={i}
-                        className="p-2 text-sm hover:bg-blue-50 hover:text-blue-700 cursor-pointer"
-                        onClick={() => {
-                          setSupSearchText(name);
-                          setFormData({ ...formData, supervisor: name });
-                          setShowSupDropdown(false);
-                        }}
-                      >
-                        {name}
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+              <select
+                required
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                value={formData.supervisor}
+                onChange={(e) => setFormData({ ...formData, supervisor: e.target.value })}
+              >
+                <option value="">-- Choose Supervisor --</option>
+                {filteredSupervisors.map((name, i) => (
+                  <option key={i} value={name}>{name}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -232,11 +207,11 @@ export default function RequestForm() {
             <div className="space-y-4">
               {items.map((item, index) => {
                 const masterList = item.type === 'Tools' ? tools : machines;
-                const typedText = itemSearchText[index] ?? item.itemName;
+                const rowFilterText = itemFilters[index] || '';
                 
-                // Filter matching characters ANYWHERE in the item name
+                // Keep values matching keyword anywhere inside item.name
                 const filteredItems = masterList.filter(availItem =>
-                  availItem.name.toLowerCase().includes(typedText.toLowerCase())
+                  availItem.name.toLowerCase().includes(rowFilterText.toLowerCase())
                 );
 
                 return (
@@ -247,55 +222,36 @@ export default function RequestForm() {
                       <select
                         className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm"
                         value={item.type}
-                        onChange={(e) => {
-                          updateItemField(index, 'type', e.target.value as any);
-                          updateItemField(index, 'itemName', ''); // Reset choice
-                          setItemSearchText({ ...itemSearchText, [index]: '' }); // Reset text
-                        }}
+                        onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
                       >
                         <option value="Tools">Tools</option>
                         <option value="Machine">Machine</option>
                       </select>
                     </div>
 
-                    {/* LIVE GLOBAL FILTER SEARCH BOX */}
-                    <div className="w-full sm:w-2/4 relative">
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection (Type to Search)</label>
+                    {/* SELECT ITEM DROPDOWN PANEL WITH A SEARCH FILTER BOX */}
+                    <div className="w-full sm:w-2/4 space-y-1">
+                      <label className="block text-xs font-medium text-gray-600">Item Selection</label>
                       <input
                         type="text"
-                        placeholder={`Search ${item.type.toLowerCase()} name...`}
-                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500"
-                        value={typedText}
-                        onFocus={() => setActiveSearchIndex(index)}
-                        onChange={(e) => {
-                          setItemSearchText({ ...itemSearchText, [index]: e.target.value });
-                          updateItemField(index, 'itemName', ''); // Reset explicit value until clicked
-                          setActiveSearchIndex(index);
-                        }}
+                        placeholder={`🔍 Filter ${item.type.toLowerCase()}...`}
+                        className="w-full bg-white border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 mb-1"
+                        value={rowFilterText}
+                        onChange={(e) => setItemFilters({ ...itemFilters, [index]: e.target.value })}
                       />
-                      
-                      {activeSearchIndex === index && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto left-0">
-                          {filteredItems.length === 0 ? (
-                            <div className="p-2 text-sm text-gray-500">No matching stock items</div>
-                          ) : (
-                            filteredItems.map((availItem, i) => (
-                              <div
-                                key={i}
-                                className="p-2 text-sm hover:bg-blue-50 hover:text-blue-700 cursor-pointer flex justify-between"
-                                onClick={() => {
-                                  updateItemField(index, 'itemName', availItem.name);
-                                  setItemSearchText({ ...itemSearchText, [index]: availItem.name });
-                                  setActiveSearchIndex(null); // Close panel
-                                }}
-                              >
-                                <span>{availItem.name}</span>
-                                <span className="text-xs text-gray-400 font-mono">Stock: {availItem.stock}</span>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      )}
+                      <select
+                        required
+                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500"
+                        value={item.itemName}
+                        onChange={(e) => updateItemField(index, 'itemName', e.target.value)}
+                      >
+                        <option value="">-- Choose {item.type} --</option>
+                        {filteredItems.map((availItem, i) => (
+                          <option key={i} value={availItem.name}>
+                            {availItem.name} (Stock: {availItem.stock})
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div className="w-full sm:w-1/4">
@@ -315,7 +271,10 @@ export default function RequestForm() {
                         type="button"
                         onClick={() => {
                           handleRemoveItemRow(index);
-                          setActiveSearchIndex(null);
+                          // clean up local storage dictionary key references
+                          const updatedFilters = { ...itemFilters };
+                          delete updatedFilters[index];
+                          setItemFilters(updatedFilters);
                         }}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-9 sm:mb-0.5"
                       >
@@ -329,10 +288,7 @@ export default function RequestForm() {
 
             <button
               type="button"
-              onClick={() => {
-                handleAddItemRow();
-                setActiveSearchIndex(null);
-              }}
+              onClick={handleAddItemRow}
               className="mt-3 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center"
             >
               + Add Another Item Line
