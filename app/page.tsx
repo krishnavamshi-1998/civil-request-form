@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface DropdownItem {
   name: string;
@@ -22,15 +22,15 @@ export default function RequestForm() {
     expectedReturn: '',
   });
 
-  // Department Selection Toggle for the "Issued To" Section
+  // Department Selection Toggle
   const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
 
-  // Dynamic Multi-row Array Items State
+  // Dynamic Items State
   const [items, setItems] = useState<FormItem[]>([
     { type: 'Tools', itemName: '', quantity: 1 }
   ]);
 
-  // Master Lists fetched dynamically from Google Sheets via API
+  // Master Lists fetched dynamically from Google Sheets
   const [supervisors, setSupervisors] = useState<string[]>([]);
   const [tools, setTools] = useState<DropdownItem[]>([]);
   const [machines, setMachines] = useState<DropdownItem[]>([]);
@@ -39,11 +39,17 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Filter input states for searching lists anywhere in the text
-  const [supervisorFilter, setSupervisorFilter] = useState('');
-  const [itemFilters, setItemFilters] = useState<{ [key: number]: string }>({});
+  // Custom Searchable Dropdown UI Open/Close States
+  const [supOpen, setSupOpen] = useState(false);
+  const [itemOpen, setItemOpen] = useState<{ [key: number]: boolean }>({});
 
-  // Fetch dropdown collections on page load
+  // Search input text state (what the user actually types inside the box)
+  const [supSearch, setSupSearch] = useState('');
+  const [itemSearch, setItemSearch] = useState<{ [key: number]: string }>({});
+
+  // Refs to detect clicking outside the dropdown to close it
+  const supervisorRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     async function fetchDropdownData() {
       try {
@@ -69,14 +75,22 @@ export default function RequestForm() {
       }
     }
     fetchDropdownData();
+
+    // Close dropdowns when clicking outside
+    const handleClickOutside = (event: MouseEvent) => {
+      if (supervisorRef.current && !supervisorRef.current.contains(event.target as Node)) {
+        setSupOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filter strings matching character keywords ANYWHERE in the name
+  // Filter Logic
   const filteredSupervisors = supervisors.filter(name => 
-    name.toLowerCase().includes(supervisorFilter.toLowerCase())
+    name.toLowerCase().includes(supSearch.toLowerCase())
   );
 
-  // Dynamic Array Handlers
   const handleAddItemRow = () => {
     setItems([...items, { type: 'Tools', itemName: '', quantity: 1 }]);
   };
@@ -84,9 +98,12 @@ export default function RequestForm() {
   const handleRemoveItemRow = (index: number) => {
     if (items.length > 1) {
       setItems(items.filter((_, i) => i !== index));
-      const updatedFilters = { ...itemFilters };
-      delete updatedFilters[index];
-      setItemFilters(updatedFilters);
+      const updatedSearch = { ...itemSearch };
+      const updatedOpen = { ...itemOpen };
+      delete updatedSearch[index];
+      delete updatedOpen[index];
+      setItemSearch(updatedSearch);
+      setItemOpen(updatedOpen);
     }
   };
 
@@ -94,18 +111,17 @@ export default function RequestForm() {
     const updated = [...items];
     if (field === 'type') {
       updated[index] = { ...updated[index], type: value, itemName: '' };
-      setItemFilters({ ...itemFilters, [index]: '' });
+      setItemSearch({ ...itemSearch, [index]: '' });
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
     setItems(updated);
   };
 
-  // Form Submitter
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.supervisor || items.some(i => !i.itemName)) {
-      setMessage({ text: 'Please fill in Supervisor and select names for all items.', isError: true });
+      setMessage({ text: 'Please select a Supervisor and item names for all lines.', isError: true });
       return;
     }
 
@@ -123,11 +139,11 @@ export default function RequestForm() {
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
         setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
-        setSupervisorFilter('');
-        setItemFilters({});
+        setSupSearch('');
+        setItemSearch({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
       } else {
-        throw new Error(data.error || 'Unknown submission server error.');
+        throw new Error(data.error || 'Unknown submission error.');
       }
     } catch (err: any) {
       setMessage({ text: `Submission Failed: ${err.message}`, isError: true });
@@ -155,32 +171,47 @@ export default function RequestForm() {
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Section: Header Block Context */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
-            {/* SUPERVISOR SEARCH & SELECTION COMPONENT */}
-            <div className="flex flex-col space-y-1">
-              <div className="flex justify-between items-center">
-                <label className="text-sm font-medium text-gray-700">Supervisor</label>
+            {/* TRUE SEARCHABLE SUPERVISOR DROPDOWN */}
+            <div className="flex flex-col space-y-1 relative" ref={supervisorRef}>
+              <label className="text-sm font-medium text-gray-700">Supervisor</label>
+              <div className="relative">
                 <input
                   type="text"
-                  placeholder="🔍 Filter list..."
-                  className="w-1/2 max-w-[180px] bg-white border border-gray-300 rounded-md px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  value={supervisorFilter}
-                  onChange={(e) => setSupervisorFilter(e.target.value)}
+                  required
+                  placeholder="🔍 Type to search & select supervisor..."
+                  className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none cursor-pointer"
+                  value={supSearch}
+                  onFocus={() => setSupOpen(true)}
+                  onChange={(e) => {
+                    setSupSearch(e.target.value);
+                    setSupOpen(true);
+                    if (formData.supervisor) setFormData({ ...formData, supervisor: '' });
+                  }}
                 />
+                {supOpen && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md max-h-60 overflow-y-auto shadow-lg">
+                    {filteredSupervisors.length === 0 ? (
+                      <div className="p-2 text-sm text-gray-500">No supervisors found</div>
+                    ) : (
+                      filteredSupervisors.map((name, i) => (
+                        <div
+                          key={i}
+                          className="p-2 text-sm hover:bg-blue-500 hover:text-white cursor-pointer transition-colors"
+                          onClick={() => {
+                            setFormData({ ...formData, supervisor: name });
+                            setSupSearch(name);
+                            setSupOpen(false);
+                          }}
+                        >
+                          {name}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
-              <select
-                required
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition duration-150 outline-none"
-                value={formData.supervisor}
-                onChange={(e) => setFormData({ ...formData, supervisor: e.target.value })}
-              >
-                <option value="">-- Choose Supervisor --</option>
-                {filteredSupervisors.map((name, i) => (
-                  <option key={i} value={name}>{name}</option>
-                ))}
-              </select>
             </div>
 
             <div className="flex flex-col space-y-1">
@@ -194,7 +225,7 @@ export default function RequestForm() {
               />
             </div>
 
-            {/* ISSUED TO SECTION WITH CIVIL / OTHER DEPT TOGGLE BUTTONS */}
+            {/* ISSUED TO DEPT TOGGLE */}
             <div className="flex flex-col col-span-1 sm:col-span-2 bg-gray-50 p-4 rounded-md border border-gray-200">
               <label className="block text-sm font-medium text-gray-700 mb-2">Issued To (Worker Context)</label>
               <div className="flex gap-2 mb-3">
@@ -247,11 +278,11 @@ export default function RequestForm() {
             <div className="space-y-4">
               {items.map((item, index) => {
                 const masterList = item.type === 'Tools' ? tools : machines;
-                const currentFilter = itemFilters[index] || '';
+                const currentSearch = itemSearch[index] || '';
+                const isOpen = itemOpen[index] || false;
                 
-                // Live filter items list matching string text
                 const filteredItems = masterList.filter(availItem =>
-                  availItem.name.toLowerCase().includes(currentFilter.toLowerCase())
+                  availItem.name.toLowerCase().includes(currentSearch.toLowerCase())
                 );
                 
                 return (
@@ -268,31 +299,45 @@ export default function RequestForm() {
                       </select>
                     </div>
 
-                    {/* ITEM DROPDOWN WITH COMPACT INTEGRATED INLINE SEARCH BAR */}
-                    <div className="w-full sm:w-2/4 flex flex-col space-y-1">
-                      <div className="flex justify-between items-center">
-                        <label className="text-xs font-medium text-gray-600">Item Selection</label>
+                    {/* TRUE SEARCHABLE ITEM SELECTION DROPDOWN */}
+                    <div className="w-full sm:w-2/4 flex flex-col space-y-1 relative">
+                      <label className="text-xs font-medium text-gray-600">Item Selection</label>
+                      <div className="relative">
                         <input
                           type="text"
-                          placeholder="🔍 Filter item..."
-                          className="w-1/2 bg-white border border-gray-300 rounded-md px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-                          value={currentFilter}
-                          onChange={(e) => setItemFilters({ ...itemFilters, [index]: e.target.value })}
+                          required
+                          placeholder={`🔍 Type to search standard ${item.type.toLowerCase()}...`}
+                          className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer"
+                          value={currentSearch}
+                          onFocus={() => setItemOpen({ ...itemOpen, [index]: true })}
+                          onChange={(e) => {
+                            setItemSearch({ ...itemSearch, [index]: e.target.value });
+                            setItemOpen({ ...itemOpen, [index]: true });
+                            if (item.itemName) updateItemField(index, 'itemName', '');
+                          }}
                         />
+                        {isOpen && (
+                          <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md max-h-60 overflow-y-auto shadow-lg">
+                            {filteredItems.length === 0 ? (
+                              <div className="p-2 text-sm text-gray-500">No matches found</div>
+                            ) : (
+                              filteredItems.map((availItem, i) => (
+                                <div
+                                  key={i}
+                                  className="p-2 text-sm hover:bg-blue-500 hover:text-white cursor-pointer transition-colors"
+                                  onClick={() => {
+                                    updateItemField(index, 'itemName', availItem.name);
+                                    setItemSearch({ ...itemSearch, [index]: availItem.name });
+                                    setItemOpen({ ...itemOpen, [index]: false });
+                                  }}
+                                >
+                                  {availItem.name} <span className="text-xs opacity-80">(Stock: {availItem.stock})</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <select
-                        required
-                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                        value={item.itemName}
-                        onChange={(e) => updateItemField(index, 'itemName', e.target.value)}
-                      >
-                        <option value="">-- Choose {item.type} --</option>
-                        {filteredItems.map((availItem, i) => (
-                          <option key={i} value={availItem.name}>
-                            {availItem.name} (Stock: {availItem.stock})
-                          </option>
-                        ))}
-                      </select>
                     </div>
 
                     <div className="w-full sm:w-1/4 flex flex-col space-y-1">
@@ -330,14 +375,12 @@ export default function RequestForm() {
             </button>
           </div>
 
-          {/* Feedback Messages */}
           {message.text && (
             <div className={`p-3 rounded-md text-sm font-medium ${message.isError ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
               {message.text}
             </div>
           )}
 
-          {/* Execution triggers */}
           <button
             type="submit"
             disabled={submitting}
