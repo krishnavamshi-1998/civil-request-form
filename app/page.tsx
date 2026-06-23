@@ -46,8 +46,9 @@ export default function RequestForm() {
   const [supSearch, setSupSearch] = useState('');
   const [itemSearch, setItemSearch] = useState<{ [key: number]: string }>({});
 
-  // Refs to detect clicking outside the dropdown to close it
+  // Refs to detect clicking outside the dropdown container elements
   const supervisorRef = useRef<HTMLDivElement>(null);
+  const itemsContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     async function fetchDropdownData() {
@@ -75,14 +76,33 @@ export default function RequestForm() {
     }
     fetchDropdownData();
 
-    // Close dropdowns when clicking outside
+    // 1. GLOBAL CLICK OUTSIDE HANDLER
     const handleClickOutside = (event: MouseEvent) => {
+      // Close supervisor dropdown if clicked outside
       if (supervisorRef.current && !supervisorRef.current.contains(event.target as Node)) {
         setSupOpen(false);
       }
+      // Close all item dropdowns if clicked completely outside the items area
+      if (itemsContainerRef.current && !itemsContainerRef.current.contains(event.target as Node)) {
+        setItemOpen({});
+      }
     };
+
+    // 2. GLOBAL ESCAPE KEY HANDLER
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSupOpen(false);
+        setItemOpen({});
+      }
+    };
+
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   // Filter Logic
@@ -250,7 +270,7 @@ export default function RequestForm() {
               </div>
             </div>
 
-            {/* EXPECTED RETURN DATE (MOVED TO LAST IN CONTAINER) */}
+            {/* EXPECTED RETURN DATE */}
             <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
               <label className="text-sm font-medium text-gray-700">Expected Return Date</label>
               <input
@@ -266,7 +286,7 @@ export default function RequestForm() {
           <hr className="border-gray-200" />
 
           {/* Section: Multi-item Row Allocator */}
-          <div>
+          <div ref={itemsContainerRef}>
             <h2 className="text-lg font-semibold text-gray-700 mb-3">Requested Items Checklist</h2>
             <div className="space-y-4">
               {items.map((item, index) => {
@@ -348,7 +368,7 @@ export default function RequestForm() {
                     {items.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => handleRemoveItemRow(index)}
+                        onClick={handleRemoveItemRow(index)}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-[38px] transition-colors"
                       >
                         Remove
