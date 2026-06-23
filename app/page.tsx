@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Select from 'react-select';
 
 interface DropdownItem {
   name: string;
@@ -23,6 +22,9 @@ export default function RequestForm() {
     expectedReturn: '',
   });
 
+  // Department Selection Toggle for the "Issued To" Section
+  const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
+
   // Dynamic Multi-row Array Items State
   const [items, setItems] = useState<FormItem[]>([
     { type: 'Tools', itemName: '', quantity: 1 }
@@ -37,7 +39,11 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Fetch dropdown collections on page load
+  // Filter input states for searching lists
+  const [supervisorFilter, setSupervisorFilter] = useState('');
+  const [itemFilters, setItemFilters] = useState<{ [key: number]: string }>({});
+
+  // Fetch dropdown collections on page load and handle BOTH data formats safely
   useEffect(() => {
     async function fetchDropdownData() {
       try {
@@ -45,8 +51,17 @@ export default function RequestForm() {
         const data = await res.json();
         if (data.success) {
           setSupervisors(data.supervisors || []);
-          setTools(data.tools || []);
-          setMachines(data.machines || []);
+          
+          // Safety Map: Converts either raw strings or stock objects into clean formats
+          const formattedTools = (data.tools || []).map((t: any) => 
+            typeof t === 'string' ? { name: t, stock: 'Live' } : { name: t.name, stock: t.stock }
+          );
+          const formattedMachines = (data.machines || []).map((m: any) => 
+            typeof m === 'string' ? { name: m, stock: 'Live' } : { name: m.name, stock: m.stock }
+          );
+
+          setTools(formattedTools);
+          setMachines(formattedMachines);
         }
       } catch (err) {
         console.error('Failed to load form dropdowns:', err);
@@ -57,49 +72,10 @@ export default function RequestForm() {
     fetchDropdownData();
   }, []);
 
-  // Standard Tailwind Design configuration map for react-select components
-  const customSelectStyles = {
-    control: (base: any, state: any) => ({
-      ...base,
-      backgroundColor: '#F9FAFB', // matching bg-gray-50
-      borderColor: state.isFocused ? '#3B82F6' : '#D1D5DB', // blue-500 vs gray-300
-      borderRadius: '0.375rem', // rounded-md
-      paddingTop: '2px',
-      paddingBottom: '2px',
-      boxShadow: state.isFocused ? '0 0 0 1px #3B82F6' : 'none',
-      '&:hover': { borderColor: '#9CA3AF' }
-    }),
-    menu: (base: any) => ({
-      ...base,
-      zIndex: 50,
-      backgroundColor: '#FFFFFF',
-      borderRadius: '0.375rem',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-    }),
-    option: (base: any, state: any) => ({
-      ...base,
-      backgroundColor: state.isSelected ? '#3B82F6' : state.isFocused ? '#EFF6FF' : '#FFFFFF',
-      color: state.isSelected ? '#FFFFFF' : '#1F2937',
-      cursor: 'pointer'
-    }),
-    input: (base: any) => ({
-      ...base,
-      'input:focus': { boxShadow: 'none' } // Disables clash with @tailwindcss/forms plugin layout rules
-    })
-  };
-
-  // Convert raw master collections to react-select { value, label } formats
-  const supervisorOptions = supervisors.map((name) => ({ value: name, label: name }));
-  
-  const toolOptions = tools.map((t) => ({
-    value: t.name,
-    label: `${t.name} (Available: ${t.stock})`
-  }));
-
-  const machineOptions = machines.map((m) => ({
-    value: m.name,
-    label: `${m.name} (Available: ${m.stock})`
-  }));
+  // Filter strings matching character keywords ANYWHERE in the name
+  const filteredSupervisors = supervisors.filter(name => 
+    name.toLowerCase().includes(supervisorFilter.toLowerCase())
+  );
 
   // Dynamic Array Handlers
   const handleAddItemRow = () => {
@@ -109,14 +85,17 @@ export default function RequestForm() {
   const handleRemoveItemRow = (index: number) => {
     if (items.length > 1) {
       setItems(items.filter((_, i) => i !== index));
+      const updatedFilters = { ...itemFilters };
+      delete updatedFilters[index];
+      setItemFilters(updatedFilters);
     }
   };
 
   const updateItemField = (index: number, field: keyof FormItem, value: any) => {
     const updated = [...items];
     if (field === 'type') {
-      // If switching selection groups, reset item reference selection
       updated[index] = { ...updated[index], type: value, itemName: '' };
+      setItemFilters({ ...itemFilters, [index]: '' });
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
@@ -138,14 +117,15 @@ export default function RequestForm() {
       const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, items }),
+        body: JSON.stringify({ ...formData, department, items }),
       });
       const data = await res.json();
 
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
-        // Reset inputs on completion
         setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
+        setSupervisorFilter('');
+        setItemFilters({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
       } else {
         throw new Error(data.error || 'Unknown submission server error.');
@@ -160,7 +140,7 @@ export default function RequestForm() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen bg-gray-100">
-        <p className="text-gray-600 font-semibold text-lg">Syncing Master Inventory Options...</p>
+        <p className="text-gray-600 font-semibold text-lg">Syncing Live Master Inventory...</p>
       </div>
     );
   }
@@ -175,16 +155,28 @@ export default function RequestForm() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Section: Header Block Context */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
+            
+            {/* SUPERVISOR SEARCH SELECTION PANEL */}
+            <div className="flex flex-col">
               <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
-              <Select
-                options={supervisorOptions}
-                placeholder="Search supervisor..."
-                isSearchable={true}
-                styles={customSelectStyles}
-                value={supervisorOptions.find(o => o.value === formData.supervisor) || null}
-                onChange={(opt) => setFormData({ ...formData, supervisor: opt?.value || '' })}
+              <input
+                type="text"
+                placeholder="🔍 Search supervisor name..."
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 mb-1"
+                value={supervisorFilter}
+                onChange={(e) => setSupervisorFilter(e.target.value)}
               />
+              <select
+                required
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                value={formData.supervisor}
+                onChange={(e) => setFormData({ ...formData, supervisor: e.target.value })}
+              >
+                <option value="">-- Choose Supervisor --</option>
+                {filteredSupervisors.map((name, i) => (
+                  <option key={i} value={name}>{name}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -198,12 +190,34 @@ export default function RequestForm() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Issued To (Worker Name)</label>
+            {/* ISSUED TO SECTION WITH RESTORED CIVIL / OTHER DEPT TOGGLE BUTTONS */}
+            <div className="flex flex-col col-span-1 sm:col-span-2 bg-gray-50 p-3 rounded-md border">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Issued To (Worker Context)</label>
+              <div className="flex gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setDepartment('Civil')}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-colors duration-150 ${
+                    department === 'Civil' ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 border hover:bg-gray-100'
+                  }`}
+                >
+                  Civil Dept
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDepartment('Other')}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-colors duration-150 ${
+                    department === 'Other' ? 'bg-blue-600 text-white shadow' : 'bg-white text-gray-700 border hover:bg-gray-100'
+                  }`}
+                >
+                  Other Depts
+                </button>
+              </div>
               <input
                 type="text"
                 required
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Enter worker's full name..."
+                className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
                 value={formData.issuedTo}
                 onChange={(e) => setFormData({ ...formData, issuedTo: e.target.value })}
               />
@@ -228,7 +242,13 @@ export default function RequestForm() {
             <h2 className="text-lg font-semibold text-gray-700 mb-3">Requested Items Checklist</h2>
             <div className="space-y-4">
               {items.map((item, index) => {
-                const currentOptions = item.type === 'Tools' ? toolOptions : machineOptions;
+                const masterList = item.type === 'Tools' ? tools : machines;
+                const currentFilter = itemFilters[index] || '';
+                
+                // Live filter items array anywhere in the text line
+                const filteredItems = masterList.filter(availItem =>
+                  availItem.name.toLowerCase().includes(currentFilter.toLowerCase())
+                );
                 
                 return (
                   <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-gray-50 p-4 rounded-md border relative">
@@ -244,16 +264,29 @@ export default function RequestForm() {
                       </select>
                     </div>
 
-                    <div className="w-full sm:w-2/4">
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection (Searchable)</label>
-                      <Select
-                        options={currentOptions}
-                        placeholder={`Search standard ${item.type.toLowerCase()}...`}
-                        isSearchable={true}
-                        styles={customSelectStyles}
-                        value={currentOptions.find(o => o.value === item.itemName) || null}
-                        onChange={(opt) => updateItemField(index, 'itemName', opt?.value || '')}
+                    {/* SELECT DROPDOWN FEATURING LIVE INLINE KEYWORD TEXT SELECTION FILTER */}
+                    <div className="w-full sm:w-2/4 flex flex-col">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection</label>
+                      <input
+                        type="text"
+                        placeholder={`🔍 Search standard ${item.type.toLowerCase()}...`}
+                        className="w-full bg-white border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 mb-1"
+                        value={currentFilter}
+                        onChange={(e) => setItemFilters({ ...itemFilters, [index]: e.target.value })}
                       />
+                      <select
+                        required
+                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500"
+                        value={item.itemName}
+                        onChange={(e) => updateItemField(index, 'itemName', e.target.value)}
+                      >
+                        <option value="">-- Choose {item.type} --</option>
+                        {filteredItems.map((availItem, i) => (
+                          <option key={i} value={availItem.name}>
+                            {availItem.name} (Stock: {availItem.stock})
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div className="w-full sm:w-1/4">
