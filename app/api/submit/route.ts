@@ -16,8 +16,17 @@ const auth = new google.auth.JWT({
     const spreadsheetId = process.env.GOOGLE_SHEET_ID || '';
 
     // 1. Generate the local timestamp string
-    const now = new Date();
-    const localDateTimeString = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    // Forces the server to generate the timestamp in India Standard Time (IST)
+const localDateTimeString = new Date().toLocaleString("en-IN", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false // Set to true if you prefer 12-hour AM/PM format
+}).replace(/,/g, ''); // Removes the automated comma between the date and time
 
     // 2. Fetch the current rows from both sheets to compute the next S.No
     const existingRows = await sheets.spreadsheets.values.batchGet({
