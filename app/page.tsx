@@ -18,11 +18,10 @@ export default function RequestForm() {
   const [formData, setFormData] = useState({
     supervisor: '',
     location: '',
-    issuedTo: '',
     expectedReturn: '',
   });
 
-  // Department Selection Toggle
+  // Department Selection Toggle for the "Issued To" field
   const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
 
   // Dynamic Items State
@@ -43,7 +42,7 @@ export default function RequestForm() {
   const [supOpen, setSupOpen] = useState(false);
   const [itemOpen, setItemOpen] = useState<{ [key: number]: boolean }>({});
 
-  // Search input text state (what the user actually types inside the box)
+  // Search input text state
   const [supSearch, setSupSearch] = useState('');
   const [itemSearch, setItemSearch] = useState<{ [key: number]: string }>({});
 
@@ -132,13 +131,13 @@ export default function RequestForm() {
       const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, department, items }),
+        body: JSON.stringify({ ...formData, department, items, issuedTo: department }),
       });
       const data = await res.json();
 
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
-        setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
+        setFormData({ supervisor: '', location: '', expectedReturn: '' });
         setSupSearch('');
         setItemSearch({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
@@ -173,7 +172,7 @@ export default function RequestForm() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
-            {/* TRUE SEARCHABLE SUPERVISOR DROPDOWN */}
+            {/* SEARCHABLE SUPERVISOR DROPDOWN */}
             <div className="flex flex-col space-y-1 relative" ref={supervisorRef}>
               <label className="text-sm font-medium text-gray-700">Supervisor</label>
               <div className="relative">
@@ -214,6 +213,7 @@ export default function RequestForm() {
               </div>
             </div>
 
+            {/* LOCATION / SITE FIELD */}
             <div className="flex flex-col space-y-1">
               <label className="text-sm font-medium text-gray-700">Location / Site</label>
               <input
@@ -225,10 +225,10 @@ export default function RequestForm() {
               />
             </div>
 
-            {/* ISSUED TO DEPT TOGGLE */}
+            {/* ISSUED TO FIELD (TOGGLE ONLY) */}
             <div className="flex flex-col col-span-1 sm:col-span-2 bg-gray-50 p-4 rounded-md border border-gray-200">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Issued To (Worker Context)</label>
-              <div className="flex gap-2 mb-3">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Issued To</label>
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setDepartment('Civil')}
@@ -248,16 +248,9 @@ export default function RequestForm() {
                   Other Depts
                 </button>
               </div>
-              <input
-                type="text"
-                required
-                placeholder="Enter worker's full name..."
-                className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                value={formData.issuedTo}
-                onChange={(e) => setFormData({ ...formData, issuedTo: e.target.value })}
-              />
             </div>
 
+            {/* EXPECTED RETURN DATE (MOVED TO LAST IN CONTAINER) */}
             <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
               <label className="text-sm font-medium text-gray-700">Expected Return Date</label>
               <input
@@ -299,7 +292,7 @@ export default function RequestForm() {
                       </select>
                     </div>
 
-                    {/* TRUE SEARCHABLE ITEM SELECTION DROPDOWN */}
+                    {/* SEARCHABLE ITEM SELECTION DROPDOWN */}
                     <div className="w-full sm:w-2/4 flex flex-col space-y-1 relative">
                       <label className="text-xs font-medium text-gray-600">Item Selection</label>
                       <div className="relative">
