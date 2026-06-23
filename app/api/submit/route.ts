@@ -6,13 +6,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { supervisor, location, issuedTo, expectedReturn, items } = body;
 
-    // 1. First, parse the entire credentials block from Vercel
-const credentials = JSON.parse(process.env.GOOGLE_CREDS || '{}');
-
-// 2. Pass it directly into the Google Auth constructor
 const auth = new google.auth.JWT({
-  email: credentials.client_email,
-  key: credentials.private_key,
+  email: process.env.GOOGLE_CLIENT_EMAIL || '',
+  key: (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 
