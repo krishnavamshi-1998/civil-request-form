@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import Select from 'react-select';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface DropdownItem {
   name: string;
@@ -37,6 +36,15 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
+  // Custom Search UI Overlay Dropdown Controllers
+  const [activeSearchIndex, setActiveSearchIndex] = useState<number | null>(null);
+  const [itemSearchText, setItemSearchText] = useState<{ [key: number]: string }>({});
+  
+  const [showSupDropdown, setShowSupDropdown] = useState(false);
+  const [supSearchText, setSupSearchText] = useState('');
+
+  const supervisorRef = useRef<HTMLDivElement>(null);
+
   // Fetch dropdown collections on page load
   useEffect(() => {
     async function fetchDropdownData() {
@@ -57,51 +65,23 @@ export default function RequestForm() {
     fetchDropdownData();
   }, []);
 
-  // Standard Tailwind Design configuration map for react-select components
-  const customSelectStyles = {
-    control: (base: any, state: any) => ({
-      ...base,
-      backgroundColor: '#F9FAFB', // matching bg-gray-50
-      borderColor: state.isFocused ? '#3B82F6' : '#D1D5DB', // blue-500 vs gray-300
-      borderRadius: '0.375rem', // rounded-md
-      paddingTop: '2px',
-      paddingBottom: '2px',
-      boxShadow: state.isFocused ? '0 0 0 1px #3B82F6' : 'none',
-      '&:hover': { borderColor: '#9CA3AF' }
-    }),
-    menu: (base: any) => ({
-      ...base,
-      zIndex: 50,
-      backgroundColor: '#FFFFFF',
-      borderRadius: '0.375rem',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-    }),
-    option: (base: any, state: any) => ({
-      ...base,
-      backgroundColor: state.isSelected ? '#3B82F6' : state.isFocused ? '#EFF6FF' : '#FFFFFF',
-      color: state.isSelected ? '#FFFFFF' : '#1F2937',
-      cursor: 'pointer'
-    }),
-    input: (base: any) => ({
-      ...base,
-      'input:focus': { boxShadow: 'none' } // Disables clash with @tailwindcss/forms plugin layout rules
-    })
-  };
+  // Close custom drop panels when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (supervisorRef.current && !supervisorRef.current.contains(event.target as Node)) {
+        setShowSupDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  // Convert raw master collections to react-select { value, label } formats
-  const supervisorOptions = supervisors.map((name) => ({ value: name, label: name }));
-  
-  const toolOptions = tools.map((t) => ({
-    value: t.name,
-    label: `${t.name} (Available: ${t.stock})`
-  }));
+  // Filter Supervisor Array matching string ANYWHERE
+  const filteredSupervisors = supervisors.filter(name => 
+    name.toLowerCase().includes(supSearchText.toLowerCase())
+  );
 
-  const machineOptions = machines.map((m) => ({
-    value: m.name,
-    label: `${m.name} (Available: ${m.stock})`
-  }));
-
-  // Dynamic Array Handlers
+  // Dynamic Row Handlers
   const handleAddItemRow = () => {
     setItems([...items, { type: 'Tools', itemName: '', quantity: 1 }]);
   };
@@ -114,12 +94,7 @@ export default function RequestForm() {
 
   const updateItemField = (index: number, field: keyof FormItem, value: any) => {
     const updated = [...items];
-    if (field === 'type') {
-      // If switching selection groups, reset item reference selection
-      updated[index] = { ...updated[index], type: value, itemName: '' };
-    } else {
-      updated[index] = { ...updated[index], [field]: value };
-    }
+    updated[index] = { ...updated[index], [field]: value };
     setItems(updated);
   };
 
@@ -144,8 +119,9 @@ export default function RequestForm() {
 
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
-        // Reset inputs on completion
         setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
+        setSupSearchText('');
+        setItemSearchText({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
       } else {
         throw new Error(data.error || 'Unknown submission server error.');
@@ -160,7 +136,7 @@ export default function RequestForm() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen bg-gray-100">
-        <p className="text-gray-600 font-semibold text-lg">Syncing Master Inventory Options...</p>
+        <p className="text-gray-600 font-semibold text-lg">Syncing Live Master Inventory...</p>
       </div>
     );
   }
@@ -175,16 +151,43 @@ export default function RequestForm() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Section: Header Block Context */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
+            
+            {/* SEARCHABLE SUPERVISOR DROPDOWN */}
+            <div ref={supervisorRef} className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
-              <Select
-                options={supervisorOptions}
-                placeholder="Search supervisor..."
-                isSearchable={true}
-                styles={customSelectStyles}
-                value={supervisorOptions.find(o => o.value === formData.supervisor) || null}
-                onChange={(opt) => setFormData({ ...formData, supervisor: opt?.value || '' })}
+              <input
+                type="text"
+                placeholder="Type to search supervisor..."
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                value={supSearchText}
+                onFocus={() => setShowSupDropdown(true)}
+                onChange={(e) => {
+                  setSupSearchText(e.target.value);
+                  setShowSupDropdown(true);
+                  setFormData({ ...formData, supervisor: '' }); // Reset until selected
+                }}
               />
+              {showSupDropdown && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  {filteredSupervisors.length === 0 ? (
+                    <div className="p-2 text-sm text-gray-500">No match found</div>
+                  ) : (
+                    filteredSupervisors.map((name, i) => (
+                      <div
+                        key={i}
+                        className="p-2 text-sm hover:bg-blue-50 hover:text-blue-700 cursor-pointer"
+                        onClick={() => {
+                          setSupSearchText(name);
+                          setFormData({ ...formData, supervisor: name });
+                          setShowSupDropdown(false);
+                        }}
+                      >
+                        {name}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
 
             <div>
@@ -228,32 +231,71 @@ export default function RequestForm() {
             <h2 className="text-lg font-semibold text-gray-700 mb-3">Requested Items Checklist</h2>
             <div className="space-y-4">
               {items.map((item, index) => {
-                const currentOptions = item.type === 'Tools' ? toolOptions : machineOptions;
+                const masterList = item.type === 'Tools' ? tools : machines;
+                const typedText = itemSearchText[index] ?? item.itemName;
                 
+                // Filter matching characters ANYWHERE in the item name
+                const filteredItems = masterList.filter(availItem =>
+                  availItem.name.toLowerCase().includes(typedText.toLowerCase())
+                );
+
                 return (
                   <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-gray-50 p-4 rounded-md border relative">
+                    
                     <div className="w-full sm:w-1/4">
                       <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
                       <select
                         className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm"
                         value={item.type}
-                        onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
+                        onChange={(e) => {
+                          updateItemField(index, 'type', e.target.value as any);
+                          updateItemField(index, 'itemName', ''); // Reset choice
+                          setItemSearchText({ ...itemSearchText, [index]: '' }); // Reset text
+                        }}
                       >
                         <option value="Tools">Tools</option>
                         <option value="Machine">Machine</option>
                       </select>
                     </div>
 
-                    <div className="w-full sm:w-2/4">
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection (Searchable)</label>
-                      <Select
-                        options={currentOptions}
-                        placeholder={`Search standard ${item.type.toLowerCase()}...`}
-                        isSearchable={true}
-                        styles={customSelectStyles}
-                        value={currentOptions.find(o => o.value === item.itemName) || null}
-                        onChange={(opt) => updateItemField(index, 'itemName', opt?.value || '')}
+                    {/* LIVE GLOBAL FILTER SEARCH BOX */}
+                    <div className="w-full sm:w-2/4 relative">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection (Type to Search)</label>
+                      <input
+                        type="text"
+                        placeholder={`Search ${item.type.toLowerCase()} name...`}
+                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500"
+                        value={typedText}
+                        onFocus={() => setActiveSearchIndex(index)}
+                        onChange={(e) => {
+                          setItemSearchText({ ...itemSearchText, [index]: e.target.value });
+                          updateItemField(index, 'itemName', ''); // Reset explicit value until clicked
+                          setActiveSearchIndex(index);
+                        }}
                       />
+                      
+                      {activeSearchIndex === index && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-y-auto left-0">
+                          {filteredItems.length === 0 ? (
+                            <div className="p-2 text-sm text-gray-500">No matching stock items</div>
+                          ) : (
+                            filteredItems.map((availItem, i) => (
+                              <div
+                                key={i}
+                                className="p-2 text-sm hover:bg-blue-50 hover:text-blue-700 cursor-pointer flex justify-between"
+                                onClick={() => {
+                                  updateItemField(index, 'itemName', availItem.name);
+                                  setItemSearchText({ ...itemSearchText, [index]: availItem.name });
+                                  setActiveSearchIndex(null); // Close panel
+                                }}
+                              >
+                                <span>{availItem.name}</span>
+                                <span className="text-xs text-gray-400 font-mono">Stock: {availItem.stock}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="w-full sm:w-1/4">
@@ -271,7 +313,10 @@ export default function RequestForm() {
                     {items.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => handleRemoveItemRow(index)}
+                        onClick={() => {
+                          handleRemoveItemRow(index);
+                          setActiveSearchIndex(null);
+                        }}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-9 sm:mb-0.5"
                       >
                         Remove
@@ -284,7 +329,10 @@ export default function RequestForm() {
 
             <button
               type="button"
-              onClick={handleAddItemRow}
+              onClick={() => {
+                handleAddItemRow();
+                setActiveSearchIndex(null);
+              }}
               className="mt-3 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center"
             >
               + Add Another Item Line
