@@ -39,7 +39,7 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Filter input states for searching lists
+  // Filter input states for searching lists anywhere in the text
   const [supervisorFilter, setSupervisorFilter] = useState('');
   const [itemFilters, setItemFilters] = useState<{ [key: number]: string }>({});
 
@@ -52,12 +52,12 @@ export default function RequestForm() {
         if (data.success) {
           setSupervisors(data.supervisors || []);
           
-          // Safety Map: Converts either raw strings or stock objects into clean formats
+          // Safety Map: Converts either raw strings or stock objects into clean formats safely
           const formattedTools = (data.tools || []).map((t: any) => 
-            typeof t === 'string' ? { name: t, stock: 'Live' } : { name: t.name, stock: t.stock }
+            typeof t === 'string' ? { name: t, stock: 'Live' } : { name: t.name || '', stock: t.stock ?? 'Live' }
           );
           const formattedMachines = (data.machines || []).map((m: any) => 
-            typeof m === 'string' ? { name: m, stock: 'Live' } : { name: m.name, stock: m.stock }
+            typeof m === 'string' ? { name: m, stock: 'Live' } : { name: m.name || '', stock: m.stock ?? 'Live' }
           );
 
           setTools(formattedTools);
