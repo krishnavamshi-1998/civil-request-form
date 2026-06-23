@@ -10,7 +10,7 @@ interface DropdownItem {
 interface FormItem {
   type: 'Tools' | 'Machine';
   itemName: string;
-  quantity: number;
+  quantity: string; // Stored as a string so it can be completely blank while typing
 }
 
 export default function RequestForm() {
@@ -24,9 +24,9 @@ export default function RequestForm() {
   // Department Selection Toggle for the "Issued To" field
   const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
 
-  // Dynamic Items State
+  // Dynamic Items State (Starts empty so you don't have to delete "1" first)
   const [items, setItems] = useState<FormItem[]>([
-    { type: 'Tools', itemName: '', quantity: 1 }
+    { type: 'Tools', itemName: '', quantity: '' }
   ]);
 
   // Master Lists fetched dynamically from Google Sheets
@@ -80,12 +80,10 @@ export default function RequestForm() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
 
-      // Close supervisor dropdown if clicked outside
       if (supervisorRef.current && !supervisorRef.current.contains(target)) {
         setSupOpen(false);
       }
 
-      // Check each item row dropdown independently
       setItemOpen(prev => {
         const updated = { ...prev };
         let changed = false;
@@ -94,7 +92,6 @@ export default function RequestForm() {
           const index = Number(key);
           const rowRef = itemsRefs.current[index];
           
-          // If a dropdown is open, but the click happened outside that specific row wrapper
           if (updated[index] && rowRef && !rowRef.contains(target)) {
             updated[index] = false;
             changed = true;
@@ -128,7 +125,7 @@ export default function RequestForm() {
   );
 
   const handleAddItemRow = () => {
-    setItems([...items, { type: 'Tools', itemName: '', quantity: 1 }]);
+    setItems([...items, { type: 'Tools', itemName: '', quantity: '' }]);
   };
 
   const handleRemoveItemRow = (index: number) => {
@@ -140,8 +137,6 @@ export default function RequestForm() {
       delete updatedOpen[index];
       setItemSearch(updatedSearch);
       setItemOpen(updatedOpen);
-      
-      // Clean up the DOM element reference
       delete itemsRefs.current[index];
     }
   };
@@ -151,27 +146,54 @@ export default function RequestForm() {
     if (field === 'type') {
       updated[index] = { ...updated[index], type: value, itemName: '' };
       setItemSearch({ ...itemSearch, [index]: '' });
+    } else if (field === 'quantity') {
+      // Strips out any accidental text characters, leaving only pure numbers editable
+      const cleanValue = value.replace(/[^0-9]/g, '');
+      updated[index].quantity = cleanValue;
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
     setItems(updated);
   };
 
+  // Helper logic for step buttons
+  const handleStepQuantity = (index: number, direction: 'up' | 'down') => {
+    const currentNum = parseInt(items[index].quantity, 10) || 0;
+    if (direction === 'up') {
+      updateItemField(index, 'quantity', String(currentNum + 1));
+    } else {
+      updateItemField(index, 'quantity', String(Math.max(1, currentNum - 1)));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    const hasInvalidQuantity = items.some(i => !i.quantity || parseInt(i.quantity, 10) <= 0);
+
     if (!formData.supervisor || items.some(i => !i.itemName)) {
       setMessage({ text: 'Please select a Supervisor and item names for all lines.', isError: true });
+      return;
+    }
+
+    if (hasInvalidQuantity) {
+      setMessage({ text: 'Please enter a valid quantity greater than 0 for all items.', isError: true });
       return;
     }
 
     setSubmitting(true);
     setMessage({ text: '', isError: false });
 
+    const formattedItems = items.map(item => ({
+      ...item,
+      quantity: parseInt(item.quantity, 10)
+    }));
+
     try {
       const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, department, items, issuedTo: department }),
+        body: JSON.stringify({ ...formData, department, items: formattedItems, issuedTo: department }),
       });
       const data = await res.json();
 
@@ -180,7 +202,7 @@ export default function RequestForm() {
         setFormData({ supervisor: '', location: '', expectedReturn: '' });
         setSupSearch('');
         setItemSearch({});
-        setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
+        setItems([{ type: 'Tools', itemName: '', quantity: '' }]);
         itemsRefs.current = {};
       } else {
         throw new Error(data.error || 'Unknown submission error.');
@@ -266,7 +288,7 @@ export default function RequestForm() {
               />
             </div>
 
-            {/* ISSUED TO FIELD (TOGGLE ONLY) */}
+            {/* ISSUED TO FIELD */}
             <div className="flex flex-col col-span-1 sm:col-span-2 bg-gray-50 p-4 rounded-md border border-gray-200">
               <label className="block text-sm font-medium text-gray-700 mb-2">Issued To</label>
               <div className="flex gap-2">
@@ -333,7 +355,7 @@ export default function RequestForm() {
                       </select>
                     </div>
 
-                    {/* SEARCHABLE ITEM SELECTION DROPDOWN WITH INDEPENDENT ROW REF */}
+                    {/* SEARCHABLE ITEM SELECTION DROPDOWN */}
                     <div 
                       className="w-full sm:w-2/4 flex flex-col space-y-1 relative"
                       ref={(el) => { itemsRefs.current[index] = el; }}
@@ -377,24 +399,35 @@ export default function RequestForm() {
                       </div>
                     </div>
 
-                    {/* TACTILE MOBILE-FRIENDLY QUANTITY INCREMENT COMPONENT */}
+                    {/* FULLY EDITABLE HYBRID QUANTITY COMPONENT */}
                     <div className="w-full sm:w-1/4 flex flex-col space-y-1">
                       <label className="text-xs font-medium text-gray-600">Quantity</label>
-                      <div className="flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm">
+                      <div className="flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+                        {/* Minus Button */}
                         <button
                           type="button"
                           className="px-3 h-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold border-r border-gray-300 select-none active:bg-gray-300 touch-manipulation text-base"
-                          onClick={() => updateItemField(index, 'quantity', Math.max(1, item.quantity - 1))}
+                          onClick={() => handleStepQuantity(index, 'down')}
                         >
                           -
                         </button>
-                        <span className="flex-1 text-center text-sm font-semibold text-gray-800 min-w-[40px]">
-                          {item.quantity}
-                        </span>
+                        
+                        {/* Fully editable text field on both mobile and desktop */}
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="0"
+                          className="w-full h-full text-center text-sm font-semibold text-gray-800 outline-none px-2 bg-transparent min-w-[45px]"
+                          value={item.quantity}
+                          onChange={(e) => updateItemField(index, 'quantity', e.target.value)}
+                        />
+                        
+                        {/* Plus Button */}
                         <button
                           type="button"
                           className="px-3 h-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold border-l border-gray-300 select-none active:bg-gray-300 touch-manipulation text-base"
-                          onClick={() => updateItemField(index, 'quantity', item.quantity + 1)}
+                          onClick={() => handleStepQuantity(index, 'up')}
                         >
                           +
                         </button>
@@ -404,7 +437,7 @@ export default function RequestForm() {
                     {items.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => handleRemoveItemRow(index)}
+                        onClick={handleRemoveItemRow(index)}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-[38px] transition-colors"
                       >
                         Remove
