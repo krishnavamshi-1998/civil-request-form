@@ -377,16 +377,28 @@ export default function RequestForm() {
                       </div>
                     </div>
 
+                    {/* TACTILE MOBILE-FRIENDLY QUANTITY INCREMENT COMPONENT */}
                     <div className="w-full sm:w-1/4 flex flex-col space-y-1">
                       <label className="text-xs font-medium text-gray-600">Quantity</label>
-                      <input
-                        type="number"
-                        min="1"
-                        required
-                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                        value={item.quantity}
-                        onChange={(e) => updateItemField(index, 'quantity', parseInt(e.target.value) || 1)}
-                      />
+                      <div className="flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm">
+                        <button
+                          type="button"
+                          className="px-3 h-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold border-r border-gray-300 select-none active:bg-gray-300 touch-manipulation text-base"
+                          onClick={() => updateItemField(index, 'quantity', Math.max(1, item.quantity - 1))}
+                        >
+                          -
+                        </button>
+                        <span className="flex-1 text-center text-sm font-semibold text-gray-800 min-w-[40px]">
+                          {item.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          className="px-3 h-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold border-l border-gray-300 select-none active:bg-gray-300 touch-manipulation text-base"
+                          onClick={() => updateItemField(index, 'quantity', item.quantity + 1)}
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
 
                     {items.length > 1 && (
