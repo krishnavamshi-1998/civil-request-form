@@ -48,7 +48,7 @@ export default function RequestForm() {
 
   // Refs to detect clicking outside the dropdown container elements
   const supervisorRef = useRef<HTMLDivElement>(null);
-  const itemsContainerRef = useRef<HTMLDivElement>(null);
+  const itemsRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
 
   useEffect(() => {
     async function fetchDropdownData() {
@@ -76,19 +76,36 @@ export default function RequestForm() {
     }
     fetchDropdownData();
 
-    // 1. GLOBAL CLICK OUTSIDE HANDLER
+    // GLOBAL CLICK OUTSIDE HANDLER
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
       // Close supervisor dropdown if clicked outside
-      if (supervisorRef.current && !supervisorRef.current.contains(event.target as Node)) {
+      if (supervisorRef.current && !supervisorRef.current.contains(target)) {
         setSupOpen(false);
       }
-      // Close all item dropdowns if clicked completely outside the items area
-      if (itemsContainerRef.current && !itemsContainerRef.current.contains(event.target as Node)) {
-        setItemOpen({});
-      }
+
+      // Check each item row dropdown independently
+      setItemOpen(prev => {
+        const updated = { ...prev };
+        let changed = false;
+
+        Object.keys(itemsRefs.current).forEach((key) => {
+          const index = Number(key);
+          const rowRef = itemsRefs.current[index];
+          
+          // If a dropdown is open, but the click happened outside that specific row wrapper
+          if (updated[index] && rowRef && !rowRef.contains(target)) {
+            updated[index] = false;
+            changed = true;
+          }
+        });
+
+        return changed ? updated : prev;
+      });
     };
 
-    // 2. GLOBAL ESCAPE KEY HANDLER
+    // GLOBAL ESCAPE KEY HANDLER
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setSupOpen(false);
@@ -123,6 +140,9 @@ export default function RequestForm() {
       delete updatedOpen[index];
       setItemSearch(updatedSearch);
       setItemOpen(updatedOpen);
+      
+      // Clean up the DOM element reference
+      delete itemsRefs.current[index];
     }
   };
 
@@ -161,6 +181,7 @@ export default function RequestForm() {
         setSupSearch('');
         setItemSearch({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
+        itemsRefs.current = {};
       } else {
         throw new Error(data.error || 'Unknown submission error.');
       }
@@ -286,7 +307,7 @@ export default function RequestForm() {
           <hr className="border-gray-200" />
 
           {/* Section: Multi-item Row Allocator */}
-          <div ref={itemsContainerRef}>
+          <div>
             <h2 className="text-lg font-semibold text-gray-700 mb-3">Requested Items Checklist</h2>
             <div className="space-y-4">
               {items.map((item, index) => {
@@ -312,8 +333,11 @@ export default function RequestForm() {
                       </select>
                     </div>
 
-                    {/* SEARCHABLE ITEM SELECTION DROPDOWN */}
-                    <div className="w-full sm:w-2/4 flex flex-col space-y-1 relative">
+                    {/* SEARCHABLE ITEM SELECTION DROPDOWN WITH INDEPENDENT ROW REF */}
+                    <div 
+                      className="w-full sm:w-2/4 flex flex-col space-y-1 relative"
+                      ref={(el) => { itemsRefs.current[index] = el; }}
+                    >
                       <label className="text-xs font-medium text-gray-600">Item Selection</label>
                       <div className="relative">
                         <input
@@ -368,7 +392,7 @@ export default function RequestForm() {
                     {items.length > 1 && (
                       <button
                         type="button"
-                        onClick={handleRemoveItemRow(index)}
+                        onClick={() => handleRemoveItemRow(index)}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-[38px] transition-colors"
                       >
                         Remove
