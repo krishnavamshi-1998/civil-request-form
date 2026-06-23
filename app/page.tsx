@@ -1,247 +1,312 @@
 'use client';
-import { useState, useEffect } from 'react';
 
-interface DropdownData {
-  supervisors: string[];
-  tools: string[];
-  machines: string[];
+import React, { useState, useEffect } from 'react';
+import Select from 'react-select';
+
+interface DropdownItem {
+  name: string;
+  stock: string | number;
 }
 
-interface ItemRow {
+interface FormItem {
   type: 'Tools' | 'Machine';
   itemName: string;
   quantity: number;
 }
 
-export default function MultiIssuingForm() {
-  const [dropdowns, setDropdowns] = useState<DropdownData>({ supervisors: [], tools: [], machines: [] });
-  const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+export default function RequestForm() {
+  // Form Header State
+  const [formData, setFormData] = useState({
+    supervisor: '',
+    location: '',
+    issuedTo: '',
+    expectedReturn: '',
+  });
+
+  // Dynamic Multi-row Array Items State
+  const [items, setItems] = useState<FormItem[]>([
+    { type: 'Tools', itemName: '', quantity: 1 }
+  ]);
+
+  // Master Lists fetched dynamically from Google Sheets via API
+  const [supervisors, setSupervisors] = useState<string[]>([]);
+  const [tools, setTools] = useState<DropdownItem[]>([]);
+  const [machines, setMachines] = useState<DropdownItem[]>([]);
   
-  const initialOrderData = { supervisor: '', location: '', issuedTo: 'Civil', expectedReturn: '' };
-  const initialItemRow: ItemRow = { type: 'Machine', itemName: '', quantity: 1 };
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState({ text: '', isError: false });
 
-  const [orderData, setOrderData] = useState(initialOrderData);
-  const [items, setItems] = useState<ItemRow[]>([initialItemRow]);
-
+  // Fetch dropdown collections on page load
   useEffect(() => {
-    fetch('/api/dropdowns')
-      .then(res => res.json())
-      .then((data: DropdownData) => {
-        setDropdowns(data);
+    async function fetchDropdownData() {
+      try {
+        const res = await fetch('/api/dropdowns');
+        const data = await res.json();
+        if (data.success) {
+          setSupervisors(data.supervisors || []);
+          setTools(data.tools || []);
+          setMachines(data.machines || []);
+        }
+      } catch (err) {
+        console.error('Failed to load form dropdowns:', err);
+      } finally {
         setLoading(false);
-      })
-      .catch(err => console.error("Failed to load list data:", err));
+      }
+    }
+    fetchDropdownData();
   }, []);
 
-  const handleItemChange = (index: number, field: keyof ItemRow, value: any) => {
-    const updatedItems = [...items];
-    if (field === 'type') {
-      updatedItems[index] = { type: value, itemName: '', quantity: 1 };
-    } else {
-      updatedItems[index] = { ...updatedItems[index], [field]: value };
-    }
-    setItems(updatedItems);
+  // Standard Tailwind Design configuration map for react-select components
+  const customSelectStyles = {
+    control: (base: any, state: any) => ({
+      ...base,
+      backgroundColor: '#F9FAFB', // matching bg-gray-50
+      borderColor: state.isFocused ? '#3B82F6' : '#D1D5DB', // blue-500 vs gray-300
+      borderRadius: '0.375rem', // rounded-md
+      paddingTop: '2px',
+      paddingBottom: '2px',
+      boxShadow: state.isFocused ? '0 0 0 1px #3B82F6' : 'none',
+      '&:hover': { borderColor: '#9CA3AF' }
+    }),
+    menu: (base: any) => ({
+      ...base,
+      zIndex: 50,
+      backgroundColor: '#FFFFFF',
+      borderRadius: '0.375rem',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+    }),
+    option: (base: any, state: any) => ({
+      ...base,
+      backgroundColor: state.isSelected ? '#3B82F6' : state.isFocused ? '#EFF6FF' : '#FFFFFF',
+      color: state.isSelected ? '#FFFFFF' : '#1F2937',
+      cursor: 'pointer'
+    }),
+    input: (base: any) => ({
+      ...base,
+      'input:focus': { boxShadow: 'none' } // Disables clash with @tailwindcss/forms plugin layout rules
+    })
   };
 
-  const addItemRow = () => setItems([...items, { type: 'Machine', itemName: '', quantity: 1 }]);
-  const removeItemRow = (index: number) => setItems(items.filter((_, i) => i !== index));
+  // Convert raw master collections to react-select { value, label } formats
+  const supervisorOptions = supervisors.map((name) => ({ value: name, label: name }));
+  
+  const toolOptions = tools.map((t) => ({
+    value: t.name,
+    label: `${t.name} (Available: ${t.stock})`
+  }));
 
+  const machineOptions = machines.map((m) => ({
+    value: m.name,
+    label: `${m.name} (Available: ${m.stock})`
+  }));
+
+  // Dynamic Array Handlers
+  const handleAddItemRow = () => {
+    setItems([...items, { type: 'Tools', itemName: '', quantity: 1 }]);
+  };
+
+  const handleRemoveItemRow = (index: number) => {
+    if (items.length > 1) {
+      setItems(items.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateItemField = (index: number, field: keyof FormItem, value: any) => {
+    const updated = [...items];
+    if (field === 'type') {
+      // If switching selection groups, reset item reference selection
+      updated[index] = { ...updated[index], type: value, itemName: '' };
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
+    setItems(updated);
+  };
+
+  // Form Submitter
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    const payload = { ...orderData, items };
-    
+    if (!formData.supervisor || items.some(i => !i.itemName)) {
+      setMessage({ text: 'Please fill in Supervisor and select names for all items.', isError: true });
+      return;
+    }
+
+    setSubmitting(true);
+    setMessage({ text: '', isError: false });
+
     try {
       const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...formData, items }),
       });
-      
-      if (res.ok) {
-        alert('All items successfully sent to Google Sheets!');
-        setOrderData(initialOrderData);
-        setItems([ { type: 'Machine', itemName: '', quantity: 1 } ]);
+      const data = await res.json();
+
+      if (data.success) {
+        setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
+        // Reset inputs on completion
+        setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
+        setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
       } else {
-        alert('Something went wrong. Please try again.');
+        throw new Error(data.error || 'Unknown submission server error.');
       }
-    } catch (err) {
-      console.error(err);
-      alert('Network error. Check your connection.');
+    } catch (err: any) {
+      setMessage({ text: `Submission Failed: ${err.message}`, isError: true });
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100 text-gray-700 font-medium">
-        Loading list from Google Sheet...
+      <div className="flex justify-center items-center h-screen bg-gray-100">
+        <p className="text-gray-600 font-semibold text-lg">Syncing Master Inventory Options...</p>
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 py-6 px-4 flex items-center justify-center">
-      <div className="w-full max-w-2xl bg-white rounded-xl shadow-md border border-gray-200 p-6 space-y-6">
-        
-        <div className="border-b border-gray-200 pb-3">
-          <h1 className="text-xl font-bold text-gray-800">Civil Tools & Machine Request Form</h1>
-          <p className="text-sm text-gray-500">Fill in the fields below to log entries to the sheet.</p>
-        </div>
+    <main className="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8">
+        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center border-b pb-4">
+          Civil Tracker Request Form
+        </h1>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Section: Header Block Context */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Supervisor Name</label>
-              <select 
-                required 
-                className="block w-full rounded-lg border border-gray-300 p-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
-                value={orderData.supervisor} 
-                onChange={e => setOrderData({...orderData, supervisor: e.target.value})}
-              >
-                <option value="">-- Choose Supervisor --</option>
-                {dropdowns.supervisors.map(name => <option key={name} value={name}>{name}</option>)}
-              </select>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
+              <Select
+                options={supervisorOptions}
+                placeholder="Search supervisor..."
+                isSearchable={true}
+                styles={customSelectStyles}
+                value={supervisorOptions.find(o => o.value === formData.supervisor) || null}
+                onChange={(opt) => setFormData({ ...formData, supervisor: opt?.value || '' })}
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Location</label>
-              <input 
-                type="text" 
-                required 
-                placeholder="Enter location"
-                className="block w-full rounded-lg border border-gray-300 p-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
-                value={orderData.location} 
-                onChange={e => setOrderData({...orderData, location: e.target.value})} 
+              <label className="block text-sm font-medium text-gray-700 mb-1">Location / Site</label>
+              <input
+                type="text"
+                required
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                value={formData.location}
+                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Issued To (Worker Name)</label>
+              <input
+                type="text"
+                required
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                value={formData.issuedTo}
+                onChange={(e) => setFormData({ ...formData, issuedTo: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Expected Return Date</label>
+              <input
+                type="date"
+                required
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                value={formData.expectedReturn}
+                onChange={(e) => setFormData({ ...formData, expectedReturn: e.target.value })}
               />
             </div>
           </div>
 
+          <hr />
+
+          {/* Section: Multi-item Row Allocator */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Issued To</label>
-            <div className="flex w-full rounded-lg overflow-hidden border border-gray-300" role="group">
-              <button
-                type="button"
-                className={`w-1/2 py-2 text-sm font-bold border-r border-gray-300 transition-colors ${
-                  orderData.issuedTo === 'Civil'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
-                }`}
-                onClick={() => setOrderData({ ...orderData, issuedTo: 'Civil' })}
-              >
-                Civil
-              </button>
-              <button
-                type="button"
-                className={`w-1/2 py-2 text-sm font-bold transition-colors ${
-                  orderData.issuedTo === 'Other Depts'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
-                }`}
-                onClick={() => setOrderData({ ...orderData, issuedTo: 'Other Depts' })}
-              >
-                Other Depts
-              </button>
-            </div>
-          </div>
+            <h2 className="text-lg font-semibold text-gray-700 mb-3">Requested Items Checklist</h2>
+            <div className="space-y-4">
+              {items.map((item, index) => {
+                const currentOptions = item.type === 'Tools' ? toolOptions : machineOptions;
+                
+                return (
+                  <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-gray-50 p-4 rounded-md border relative">
+                    <div className="w-full sm:w-1/4">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                      <select
+                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm"
+                        value={item.type}
+                        onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
+                      >
+                        <option value="Tools">Tools</option>
+                        <option value="Machine">Machine</option>
+                      </select>
+                    </div>
 
-          <div className="space-y-3">
-            <label className="block text-sm font-bold text-gray-800 border-b border-gray-200 pb-1">Items</label>
-            
-            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-              {items.map((item, index) => (
-                <div key={index} className="flex flex-wrap md:flex-nowrap items-end gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                  
-                  <div className="w-full md:w-1/4">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Type</label>
-                    <select 
-                      className="block w-full rounded-lg border border-gray-300 p-2 text-sm bg-white text-gray-900" 
-                      value={item.type} 
-                      onChange={e => handleItemChange(index, 'type', e.target.value)}
-                    >
-                      <option value="Machine">Machine</option>
-                      <option value="Tools">Tools</option>
-                    </select>
-                  </div>
-
-                  <div className="w-full md:w-2/4">
-                    <label className="block text-xs font-semibold text-gray-600 mb-1">Item Name</label>
-                    <select 
-                      required 
-                      className="block w-full rounded-lg border border-gray-300 p-2 text-sm bg-white text-gray-900" 
-                      value={item.itemName} 
-                      onChange={e => handleItemChange(index, 'itemName', e.target.value)}
-                    >
-                      <option value="">-- Select Item --</option>
-                      {item.type === 'Tools' 
-                        ? dropdowns.tools.map(t => <option key={t} value={t}>{t}</option>)
-                        : dropdowns.machines.map(m => <option key={m} value={m}>{m}</option>)
-                      }
-                    </select>
-                  </div>
-
-                  <div className="w-full md:w-1/4 flex gap-2 items-center">
-                    <div className="w-full">
-                      <label className="block text-xs font-semibold text-gray-600 mb-1">Quantity</label>
-                      <input 
-                        type="number" 
-                        min="1" 
-                        required 
-                        className="block w-full rounded-lg border border-gray-300 p-2 text-sm bg-white text-gray-900 text-center font-bold" 
-                        value={item.quantity} 
-                        onChange={e => handleItemChange(index, 'quantity', parseInt(e.target.value) || 1)} 
+                    <div className="w-full sm:w-2/4">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection (Searchable)</label>
+                      <Select
+                        options={currentOptions}
+                        placeholder={`Search standard ${item.type.toLowerCase()}...`}
+                        isSearchable={true}
+                        styles={customSelectStyles}
+                        value={currentOptions.find(o => o.value === item.itemName) || null}
+                        onChange={(opt) => updateItemField(index, 'itemName', opt?.value || '')}
                       />
                     </div>
-                    
+
+                    <div className="w-full sm:w-1/4">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Quantity</label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm"
+                        value={item.quantity}
+                        onChange={(e) => updateItemField(index, 'quantity', parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+
                     {items.length > 1 && (
-                      <button 
-                        type="button" 
-                        onClick={() => removeItemRow(index)} 
-                        className="p-2 mt-5 text-gray-400 hover:text-red-500 font-bold transition-colors"
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItemRow(index)}
+                        className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-9 sm:mb-0.5"
                       >
                         Remove
                       </button>
                     )}
                   </div>
-
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            <button 
-              type="button" 
-              onClick={addItemRow} 
-              className="text-xs bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-bold py-2 px-3 rounded-lg transition-colors"
+            <button
+              type="button"
+              onClick={handleAddItemRow}
+              className="mt-3 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center"
             >
-              + Add Another Item
+              + Add Another Item Line
             </button>
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Expected Return Date</label>
-            <input 
-              type="date" 
-              required 
-              className="block w-full rounded-lg border border-gray-300 p-2.5 text-sm bg-white text-gray-900 cursor-pointer" 
-              value={orderData.expectedReturn} 
-              onChange={e => setOrderData({...orderData, expectedReturn: e.target.value})} 
-            />
-          </div>
+          {/* Feedback Messages */}
+          {message.text && (
+            <div className={`p-3 rounded-md text-sm ${message.isError ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+              {message.text}
+            </div>
+          )}
 
-          <button 
-            type="submit" 
-            disabled={isSubmitting}
-            className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow transition-colors ${
-              isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+          {/* Execution triggers */}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-md text-sm transition duration-150 disabled:bg-blue-400"
           >
-            {isSubmitting ? 'Saving items to sheets...' : 'Submit Request'}
+            {submitting ? 'Transmitting Data to Logs...' : 'Submit Request Form'}
           </button>
         </form>
-
       </div>
     </main>
   );
