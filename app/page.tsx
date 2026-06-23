@@ -10,26 +10,22 @@ interface DropdownItem {
 interface FormItem {
   type: 'Tools' | 'Machine';
   itemName: string;
-  quantity: string; // Stored as a string so it can be completely blank while typing
+  quantity: string; 
 }
 
 export default function RequestForm() {
-  // Form Header State
   const [formData, setFormData] = useState({
     supervisor: '',
     location: '',
     expectedReturn: '',
   });
 
-  // Department Selection Toggle for the "Issued To" field
   const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
 
-  // Dynamic Items State (Starts empty so you don't have to delete "1" first)
   const [items, setItems] = useState<FormItem[]>([
     { type: 'Tools', itemName: '', quantity: '' }
   ]);
 
-  // Master Lists fetched dynamically from Google Sheets
   const [supervisors, setSupervisors] = useState<string[]>([]);
   const [tools, setTools] = useState<DropdownItem[]>([]);
   const [machines, setMachines] = useState<DropdownItem[]>([]);
@@ -38,15 +34,12 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Custom Searchable Dropdown UI Open/Close States
   const [supOpen, setSupOpen] = useState(false);
   const [itemOpen, setItemOpen] = useState<{ [key: number]: boolean }>({});
 
-  // Search input text state
   const [supSearch, setSupSearch] = useState('');
   const [itemSearch, setItemSearch] = useState<{ [key: number]: string }>({});
 
-  // Refs to detect clicking outside the dropdown container elements
   const supervisorRef = useRef<HTMLDivElement>(null);
   const itemsRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
 
@@ -76,9 +69,14 @@ export default function RequestForm() {
     }
     fetchDropdownData();
 
-    // GLOBAL CLICK OUTSIDE HANDLER
+    // FIXED GLOBAL CLICK HANDLER WITH OVERLAP PASS-THROUGH
     const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
+      const target = event.target as HTMLElement;
+
+      // Ignore closing actions if you are clicking inside ANY quantity input element
+      if (target.closest('.qty-container-block')) {
+        return;
+      }
 
       if (supervisorRef.current && !supervisorRef.current.contains(target)) {
         setSupOpen(false);
@@ -102,7 +100,6 @@ export default function RequestForm() {
       });
     };
 
-    // GLOBAL ESCAPE KEY HANDLER
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setSupOpen(false);
@@ -119,7 +116,6 @@ export default function RequestForm() {
     };
   }, []);
 
-  // Filter Logic
   const filteredSupervisors = supervisors.filter(name => 
     name.toLowerCase().includes(supSearch.toLowerCase())
   );
@@ -147,7 +143,7 @@ export default function RequestForm() {
       updated[index] = { ...updated[index], type: value, itemName: '' };
       setItemSearch({ ...itemSearch, [index]: '' });
     } else if (field === 'quantity') {
-      // Strips out any accidental text characters, leaving only pure numbers editable
+      // Direct assignment ensures real-time keystroke rendering
       const cleanValue = value.replace(/[^0-9]/g, '');
       updated[index].quantity = cleanValue;
     } else {
@@ -156,7 +152,6 @@ export default function RequestForm() {
     setItems(updated);
   };
 
-  // Helper logic for step buttons
   const handleStepQuantity = (index: number, direction: 'up' | 'down') => {
     const currentNum = parseInt(items[index].quantity, 10) || 0;
     if (direction === 'up') {
@@ -399,10 +394,10 @@ export default function RequestForm() {
                       </div>
                     </div>
 
-                    {/* FULLY EDITABLE HYBRID QUANTITY COMPONENT */}
+                    {/* QUANTITY TRACKER WITH EXPLICIT CLOSURE EXEMPTION CLASS */}
                     <div className="w-full sm:w-1/4 flex flex-col space-y-1">
                       <label className="text-xs font-medium text-gray-600">Quantity</label>
-                      <div className="flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+                      <div className="qty-container-block flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
                         {/* Minus Button */}
                         <button
                           type="button"
@@ -412,7 +407,7 @@ export default function RequestForm() {
                           -
                         </button>
                         
-                        {/* Fully editable text field on both mobile and desktop */}
+                        {/* Native typing input box */}
                         <input
                           type="text"
                           inputMode="numeric"
@@ -437,7 +432,7 @@ export default function RequestForm() {
                     {items.length > 1 && (
                       <button
                         type="button"
-                        onClick={handleRemoveItemRow(index)}
+                        onClick={() => handleRemoveItemRow(index)}
                         className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 bg-white rounded-md px-3 py-2 h-[38px] transition-colors"
                       >
                         Remove
