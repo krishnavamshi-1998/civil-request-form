@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Select from 'react-select';
 
 interface DropdownItem {
   name: string;
@@ -36,44 +37,69 @@ export default function RequestForm() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
 
-  // Local state to hold text typed into the search filters
-  const [supervisorFilter, setSupervisorFilter] = useState('');
-  const [itemFilters, setItemFilters] = useState<{ [key: number]: string }>({});
-
   // Fetch dropdown collections on page load
-  // FIND THIS BLOCK IN YOUR app/page.tsx AND REPLACE IT:
-useEffect(() => {
-  async function fetchDropdownData() {
-    try {
-      const res = await fetch('/api/dropdowns');
-      const data = await res.json();
-      if (data.success) {
-        setSupervisors(data.supervisors || []);
-        
-        // FIX: If your API returns a simple array of strings, map them correctly here
-        const formattedTools = (data.tools || []).map((item: any) => 
-          typeof item === 'string' ? { name: item, stock: 'Available' } : item
-        );
-        const formattedMachines = (data.machines || []).map((item: any) => 
-          typeof item === 'string' ? { name: item, stock: 'Available' } : item
-        );
-
-        setTools(formattedTools);
-        setMachines(formattedMachines);
+  useEffect(() => {
+    async function fetchDropdownData() {
+      try {
+        const res = await fetch('/api/dropdowns');
+        const data = await res.json();
+        if (data.success) {
+          setSupervisors(data.supervisors || []);
+          setTools(data.tools || []);
+          setMachines(data.machines || []);
+        }
+      } catch (err) {
+        console.error('Failed to load form dropdowns:', err);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to load form dropdowns:', err);
-    } finally {
-      setLoading(false);
     }
-  }
-  fetchDropdownData();
-}, []);
+    fetchDropdownData();
+  }, []);
 
-  // Filter supervisors matching text ANYWHERE
-  const filteredSupervisors = supervisors.filter(name => 
-    name.toLowerCase().includes(supervisorFilter.toLowerCase())
-  );
+  // Standard Tailwind Design configuration map for react-select components
+  const customSelectStyles = {
+    control: (base: any, state: any) => ({
+      ...base,
+      backgroundColor: '#F9FAFB', // matching bg-gray-50
+      borderColor: state.isFocused ? '#3B82F6' : '#D1D5DB', // blue-500 vs gray-300
+      borderRadius: '0.375rem', // rounded-md
+      paddingTop: '2px',
+      paddingBottom: '2px',
+      boxShadow: state.isFocused ? '0 0 0 1px #3B82F6' : 'none',
+      '&:hover': { borderColor: '#9CA3AF' }
+    }),
+    menu: (base: any) => ({
+      ...base,
+      zIndex: 50,
+      backgroundColor: '#FFFFFF',
+      borderRadius: '0.375rem',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+    }),
+    option: (base: any, state: any) => ({
+      ...base,
+      backgroundColor: state.isSelected ? '#3B82F6' : state.isFocused ? '#EFF6FF' : '#FFFFFF',
+      color: state.isSelected ? '#FFFFFF' : '#1F2937',
+      cursor: 'pointer'
+    }),
+    input: (base: any) => ({
+      ...base,
+      'input:focus': { boxShadow: 'none' } // Disables clash with @tailwindcss/forms plugin layout rules
+    })
+  };
+
+  // Convert raw master collections to react-select { value, label } formats
+  const supervisorOptions = supervisors.map((name) => ({ value: name, label: name }));
+  
+  const toolOptions = tools.map((t) => ({
+    value: t.name,
+    label: `${t.name} (Available: ${t.stock})`
+  }));
+
+  const machineOptions = machines.map((m) => ({
+    value: m.name,
+    label: `${m.name} (Available: ${m.stock})`
+  }));
 
   // Dynamic Array Handlers
   const handleAddItemRow = () => {
@@ -83,19 +109,14 @@ useEffect(() => {
   const handleRemoveItemRow = (index: number) => {
     if (items.length > 1) {
       setItems(items.filter((_, i) => i !== index));
-      // Clean up search filter state for the deleted row
-      const updatedFilters = { ...itemFilters };
-      delete updatedFilters[index];
-      setItemFilters(updatedFilters);
     }
   };
 
   const updateItemField = (index: number, field: keyof FormItem, value: any) => {
     const updated = [...items];
     if (field === 'type') {
-      // Reset selected item and its search box when changing category
+      // If switching selection groups, reset item reference selection
       updated[index] = { ...updated[index], type: value, itemName: '' };
-      setItemFilters({ ...itemFilters, [index]: '' });
     } else {
       updated[index] = { ...updated[index], [field]: value };
     }
@@ -125,8 +146,6 @@ useEffect(() => {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
         // Reset inputs on completion
         setFormData({ supervisor: '', location: '', issuedTo: '', expectedReturn: '' });
-        setSupervisorFilter('');
-        setItemFilters({});
         setItems([{ type: 'Tools', itemName: '', quantity: 1 }]);
       } else {
         throw new Error(data.error || 'Unknown submission server error.');
@@ -156,28 +175,16 @@ useEffect(() => {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Section: Header Block Context */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            
-            {/* SUPERVISOR DROPDOWN WITH ADDED SEARCH BOX */}
-            <div className="flex flex-col">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
-              <input
-                type="text"
-                placeholder="🔍 Type to filter supervisors..."
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 focus:border-blue-500 mb-1"
-                value={supervisorFilter}
-                onChange={(e) => setSupervisorFilter(e.target.value)}
+              <Select
+                options={supervisorOptions}
+                placeholder="Search supervisor..."
+                isSearchable={true}
+                styles={customSelectStyles}
+                value={supervisorOptions.find(o => o.value === formData.supervisor) || null}
+                onChange={(opt) => setFormData({ ...formData, supervisor: opt?.value || '' })}
               />
-              <select
-                required
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
-                value={formData.supervisor}
-                onChange={(e) => setFormData({ ...formData, supervisor: e.target.value })}
-              >
-                <option value="">-- Choose Supervisor --</option>
-                {filteredSupervisors.map((name, i) => (
-                  <option key={i} value={name}>{name}</option>
-                ))}
-              </select>
             </div>
 
             <div>
@@ -221,13 +228,7 @@ useEffect(() => {
             <h2 className="text-lg font-semibold text-gray-700 mb-3">Requested Items Checklist</h2>
             <div className="space-y-4">
               {items.map((item, index) => {
-                const masterList = item.type === 'Tools' ? tools : machines;
-                const currentFilter = itemFilters[index] || '';
-                
-                // Live filter options list looking anywhere inside item.name string
-                const filteredItems = masterList.filter(availItem =>
-                  availItem.name.toLowerCase().includes(currentFilter.toLowerCase())
-                );
+                const currentOptions = item.type === 'Tools' ? toolOptions : machineOptions;
                 
                 return (
                   <div key={index} className="flex flex-col sm:flex-row gap-3 items-end bg-gray-50 p-4 rounded-md border relative">
@@ -243,29 +244,16 @@ useEffect(() => {
                       </select>
                     </div>
 
-                    {/* ORIGINAL SELECT DROPDOWN WITH AN INLINE SEARCH FILTER BOX ABOVE IT */}
-                    <div className="w-full sm:w-2/4 flex flex-col">
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection</label>
-                      <input
-                        type="text"
-                        placeholder={`🔍 Type to filter ${item.type.toLowerCase()}...`}
-                        className="w-full bg-white border border-gray-300 rounded-md p-1.5 text-xs focus:ring-blue-500 mb-1"
-                        value={currentFilter}
-                        onChange={(e) => setItemFilters({ ...itemFilters, [index]: e.target.value })}
+                    <div className="w-full sm:w-2/4">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Item Selection (Searchable)</label>
+                      <Select
+                        options={currentOptions}
+                        placeholder={`Search standard ${item.type.toLowerCase()}...`}
+                        isSearchable={true}
+                        styles={customSelectStyles}
+                        value={currentOptions.find(o => o.value === item.itemName) || null}
+                        onChange={(opt) => updateItemField(index, 'itemName', opt?.value || '')}
                       />
-                      <select
-                        required
-                        className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-blue-500"
-                        value={item.itemName}
-                        onChange={(e) => updateItemField(index, 'itemName', e.target.value)}
-                      >
-                        <option value="">-- Choose {item.type} --</option>
-                        {filteredItems.map((availItem, i) => (
-                          <option key={i} value={availItem.name}>
-                            {availItem.name} (Available: {availItem.stock})
-                          </option>
-                        ))}
-                      </select>
                     </div>
 
                     <div className="w-full sm:w-1/4">
