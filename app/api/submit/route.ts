@@ -1,88 +1,79 @@
-import { google } from 'googleapis';
 import { NextResponse } from 'next/server';
-
-// FORCE NEXT.JS TO RUN THIS ROUTE LIVE ON EVERY SINGLE SUBMISSION
-// This prevents Next.js from caching the server's time snapshot!
-export const dynamic = 'force-dynamic';
+import { google } from 'googleapis';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { supervisor, location, issuedTo, expectedReturn, items } = body;
+    // Destructuring fields to match the updated form payload
+    const { supervisor, location, expectedReturn, issuedTo, items } = body;
 
-    const auth = new google.auth.JWT({
-      email: process.env.GOOGLE_CLIENT_EMAIL || '',
-      key: (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+    // 1. Guard rails for validation
+    if (!supervisor || !items || items.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Missing required request form elements' },
+        { status: 400 }
+      );
+    }
+
+    // 2. Extract and Sanitize Credentials
+    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+    const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+    if (!privateKey || !email || !spreadsheetId) {
+      throw new Error('CRITICAL: Missing environment configuration keys in submission handler.');
+    }
+
+    if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+      privateKey = privateKey.slice(1, -1);
+    }
+    privateKey = privateKey.replace(/\\n/g, '\n');
+
+    // 3. Initialize Google Auth with Read/Write access scope
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: email,
+        private_key: privateKey,
+      },
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
     const sheets = google.sheets({ version: 'v4', auth });
-    
-    // Using both variable fallbacks just to make absolutely certain it reads your sheet ID
-    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID || process.env.GOOGLE_SHEET_ID || '';
 
-    // 1. Generate the local timestamp string live in IST
-    const localDateTimeString = new Date().toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    }).replace(/,/g, ''); // Removes the automated comma between the date and time
+    const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
-    // 2. Fetch the current rows from both sheets to compute the next S.No
-    const existingRows = await sheets.spreadsheets.values.batchGet({
-      spreadsheetId,
-      ranges: ['Tools!A:A', 'Machines!A:A'],
-    });
-        
-    const toolsCount = existingRows.data.valueRanges?.[0]?.values?.length || 1;
-    const machinesCount = existingRows.data.valueRanges?.[1]?.values?.length || 1;
-    let nextToolsSNo = toolsCount; 
-    let nextMachinesSNo = machinesCount;
-
-    // 3. Separate your form array into two distinct action buckets
+    // 4. Separate items into Tools and Machines buckets matching the exact column blueprint
     const toolRows: any[][] = [];
     const machineRows: any[][] = [];
 
     items.forEach((item: any) => {
-      // Base row layout: [S.No (A), Timestamp (B), Supervisor (C), Location (D), Issued To (E), Name (F), Qty (G), Return (H)]
+      const rowData = [
+        '=ROW()-1',         // Column A: S. No (Dynamic Row Auto-Counter)
+        timestamp,          // Column B: Timestamp
+        supervisor,         // Column C: Supervisor Name
+        location,           // Column D: Location
+        issuedTo,           // Column E: Issued To
+        item.itemName,      // Column F: Tool/Machine Name (Category dropped!)
+        item.quantity,      // Column G: Quantity
+        expectedReturn      // Column H: Expected Return Date
+      ];
+
+      // Routing logic based on type, but category itself is excluded from row data
       if (item.type === 'Tools') {
-        toolRows.push([
-          nextToolsSNo++, 
-          localDateTimeString, 
-          supervisor, 
-          location, 
-          issuedTo, 
-          item.itemName, 
-          item.quantity, 
-          expectedReturn
-        ]);
+        toolRows.push(rowData);
       } else if (item.type === 'Machine') {
-        machineRows.push([
-          nextMachinesSNo++, 
-          localDateTimeString, 
-          supervisor, 
-          location, 
-          issuedTo, 
-          item.itemName, 
-          item.quantity, 
-          expectedReturn
-        ]);
+        machineRows.push(rowData);
       }
     });
 
-    // 4. Send the partitioned records to their respective tabs in parallel
-    const writePromises = [];
+    // 5. Fire parallel appends targeting the strict A:H limits
+    const appendPromises = [];
 
     if (toolRows.length > 0) {
-      writePromises.push(
+      appendPromises.push(
         sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: 'Tools!A:H',
+          range: 'Tools!A:H', 
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: toolRows },
         })
@@ -90,21 +81,25 @@ export async function POST(request: Request) {
     }
 
     if (machineRows.length > 0) {
-      writePromises.push(
+      appendPromises.push(
         sheets.spreadsheets.values.append({
           spreadsheetId,
-          range: 'Machines!A:H',
+          range: 'Machines!A:H', 
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: machineRows },
         })
       );
     }
 
-    await Promise.all(writePromises);
+    await Promise.all(appendPromises);
 
-    return NextResponse.json({ success: true, message: 'Sorted entries logged successfully.' });
+    return NextResponse.json({ success: true, message: 'Data successfully logged with new layout alignment!' });
+
   } catch (error: any) {
-    console.error('Submission handling error:', error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('Google Sheets Submission Failure:', error);
+    return NextResponse.json(
+      { success: false, error: error.message || 'Internal transmission failure' },
+      { status: 500 }
+    );
   }
 }
