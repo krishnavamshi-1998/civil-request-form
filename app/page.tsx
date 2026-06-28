@@ -402,6 +402,7 @@ export default function TrackerPortal() {
               <label className="text-sm font-medium text-gray-700">Expected Return Date (Optional)</label>
               <input
                 type="date"
+                required={formMode === 'returnable'}
                 className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                 value={formData.expectedReturn}
                 onChange={(e) => setFormData({ ...formData, expectedReturn: e.target.value })}
