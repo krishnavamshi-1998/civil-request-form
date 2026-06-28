@@ -399,7 +399,7 @@ export default function TrackerPortal() {
 
             {/* EXPECTED RETURN DATE FIELD - 💡 OPTIONAL (REMOVED 'required' ATTRIBUTE) */}
             <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Expected Return Date</label>
+              <label className="text-sm font-medium text-gray-700">Expected Return Date {formMode === 'consumable' ? '(Optional)' : ''}</label>
               <input
                 type="date"
                 required={formMode === 'returnable'}
