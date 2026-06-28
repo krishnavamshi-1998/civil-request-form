@@ -8,18 +8,20 @@ interface DropdownItem {
 }
 
 interface FormItem {
-  type: 'Tools' | 'Machine';
+  type: 'Tools' | 'Machine' | 'Consumable';
   itemName: string;
   quantity: string; 
 }
 
-export default function RequestForm() {
+export default function TrackerPortal() {
+  const [formMode, setFormMode] = useState<'selection' | 'returnable' | 'consumable'>('selection');
+
   const [formData, setFormData] = useState({
     supervisor: '',
     supervisorMobile: '',
     location: '',
     expectedReturn: '',
-    issuedTo: 'Civil Dept', // Default setting
+    issuedTo: 'Civil Dept', 
   });
 
   const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
@@ -31,6 +33,9 @@ export default function RequestForm() {
   const [tools, setTools] = useState<DropdownItem[]>([]);
   const [machines, setMachines] = useState<DropdownItem[]>([]);
   
+  const [conItems, setConItems] = useState<DropdownItem[]>([]);
+  const [conSupervisors, setConSupervisors] = useState<string[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState({ text: '', isError: false });
@@ -44,7 +49,59 @@ export default function RequestForm() {
   const supervisorRef = useRef<HTMLDivElement>(null);
   const itemsRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
 
-  // Sync Department toggle selections straight into the issuedTo data string without any text box popups
+  useEffect(() => {
+    try {
+      const savedMode = sessionStorage.getItem('Civil_form_mode');
+      const savedFormData = sessionStorage.getItem('Civil_form_data');
+      const savedDept = sessionStorage.getItem('Civil_dept');
+      const savedItems = sessionStorage.getItem('Civil_items');
+      const savedSupSearch = sessionStorage.getItem('Civil_sup_search');
+      const savedItemSearch = sessionStorage.getItem('Civil_item_search');
+
+      if (savedMode) setFormMode(savedMode as any);
+      if (savedFormData) setFormData(JSON.parse(savedFormData));
+      if (savedDept) setDepartment(savedDept as any);
+      if (savedItems) setItems(JSON.parse(savedItems));
+      if (savedSupSearch) setSupSearch(savedSupSearch);
+      if (savedItemSearch) setItemSearch(JSON.parse(savedItemSearch));
+    } catch (e) {
+      console.error('Failed to restore temporary form layout memory profile:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (loading) return; 
+    sessionStorage.setItem('Civil_form_mode', formMode);
+    sessionStorage.setItem('Civil_form_data', JSON.stringify(formData));
+    sessionStorage.setItem('Civil_dept', department);
+    sessionStorage.setItem('Civil_items', JSON.stringify(items));
+    sessionStorage.setItem('Civil_sup_search', supSearch);
+    sessionStorage.setItem('Civil_item_search', JSON.stringify(itemSearch));
+  }, [formMode, formData, department, items, supSearch, itemSearch, loading]);
+
+  const handleModeSelection = (mode: 'returnable' | 'consumable') => {
+    setFormMode(mode);
+    setFormData({ supervisor: '', supervisorMobile: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
+    setDepartment('Civil');
+    setSupSearch('');
+    setItemSearch({});
+    setItems([{ type: mode === 'returnable' ? 'Tools' : 'Consumable', itemName: '', quantity: '' }]);
+    setMessage({ text: '', isError: false });
+  };
+
+  const clearSessionBackup = () => {
+    sessionStorage.removeItem('Civil_form_data');
+    sessionStorage.removeItem('Civil_dept');
+    sessionStorage.removeItem('Civil_items');
+    sessionStorage.removeItem('Civil_sup_search');
+    sessionStorage.removeItem('Civil_item_search');
+    setFormData({ supervisor: '', supervisorMobile: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
+    setDepartment('Civil');
+    setSupSearch('');
+    setItemSearch({});
+    setItems([{ type: formMode === 'consumable' ? 'Consumable' : 'Tools', itemName: '', quantity: '' }]);
+  };
+
   useEffect(() => {
     setFormData(prev => ({
       ...prev,
@@ -52,7 +109,6 @@ export default function RequestForm() {
     }));
   }, [department]);
 
-  // Fetch Dropdown Data & Handle Click Outside Closures
   useEffect(() => {
     async function fetchDropdownData() {
       try {
@@ -61,19 +117,14 @@ export default function RequestForm() {
         
         if (json.success) {
           setSupervisors(json.supervisors || []);
+          setTools((json.tools || []).map((t: any) => ({ name: String(t), stock: 'Live' })));
+          setMachines((json.machines || []).map((m: any) => ({ name: String(m), stock: 'Live' })));
           
-          const formattedTools = (json.tools || []).map((t: any) => 
-            typeof t === 'string' ? { name: t, stock: 'Live' } : { name: t.name || '', stock: t.stock ?? 'Live' }
-          );
-          const formattedMachines = (json.machines || []).map((m: any) => 
-            typeof m === 'string' ? { name: m, stock: 'Live' } : { name: m.name || '', stock: m.stock ?? 'Live' }
-          );
-
-          setTools(formattedTools);
-          setMachines(formattedMachines);
+          setConSupervisors(json.consumableSupervisors || []);
+          setConItems((json.consumableItems || []).map((i: any) => ({ name: String(i), stock: 'Live' })));
         }
       } catch (err) {
-        console.error('Failed to load form dropdowns:', err);
+        console.error('Failed to load tracking data drop values:', err);
       } finally {
         setLoading(false);
       }
@@ -107,12 +158,17 @@ export default function RequestForm() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredSupervisors = supervisors.filter(name => 
-    name.toLowerCase().includes(supSearch.toLowerCase())
-  );
+  const activeSupervisorsList = formMode === 'consumable' ? conSupervisors : supervisors;
+  
+  // 💡 MULTI-WORD SMART SEARCH FOR SUPERVISORS
+  const filteredSupervisors = activeSupervisorsList.filter(name => {
+    const searchTerms = supSearch.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const itemNameLower = name.toLowerCase();
+    return searchTerms.every(term => itemNameLower.includes(term));
+  });
 
   const handleAddItemRow = () => {
-    setItems([...items, { type: 'Tools', itemName: '', quantity: '' }]);
+    setItems([...items, { type: formMode === 'consumable' ? 'Consumable' : 'Tools', itemName: '', quantity: '' }]);
   };
 
   const handleRemoveItemRow = (index: number) => {
@@ -178,19 +234,15 @@ export default function RequestForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ...formData, 
-          items: formattedItems
+          items: formattedItems,
+          formClass: formMode 
         }),
       });
       const data = await res.json();
 
       if (data.success) {
         setMessage({ text: 'Form logs saved successfully to Google Sheets!', isError: false });
-        setFormData({ supervisor: '', supervisorMobile: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
-        setDepartment('Civil');
-        setSupSearch('');
-        setItemSearch({});
-        setItems([{ type: 'Tools', itemName: '', quantity: '' }]);
-        itemsRefs.current = {};
+        clearSessionBackup(); 
       } else {
         setMessage({ text: `Submission Failed: ${data.error}`, isError: true });
       }
@@ -201,17 +253,58 @@ export default function RequestForm() {
     }
   };
 
+  if (formMode === 'selection') {
+    return (
+      <main className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center space-y-6 border border-gray-200">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">Civil Tracker Request Portal</h1>
+            <p className="text-gray-500 text-sm mt-1">Please select the type of items you wish to issue</p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => handleModeSelection('returnable')}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-4 rounded-md transition-all text-sm shadow-sm"
+            >
+              🔄 Returnables Form (Tools / Machines)
+            </button>
+            <button
+              onClick={() => handleModeSelection('consumable')}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-4 px-4 rounded-md transition-all text-sm shadow-sm"
+            >
+              📦 Consumables Form (Materials)
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center border-b pb-4">
-          Civil Tracker Request Form
-        </h1>
+  <main className="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8">
+    <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8 relative pt-14 sm:pt-16">
+      
+      {/* 🚀 FIXED: Pushed higher up and to the left out of the way */}
+      <button
+        type="button"
+        onClick={() => {
+          setFormMode('selection');
+          sessionStorage.setItem('Civil_form_mode', 'selection');
+        }}
+        className="absolute left-6 top-5 text-xs font-semibold text-gray-600 hover:text-blue-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded transition-all shadow-sm border border-gray-200"
+      >
+        ⬅️ Back to Main Menu
+      </button>
+
+      {/* 🎯 FIXED: Main text sits perfectly centered in the middle */}
+      <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center border-b pb-4">
+        Civil {formMode === 'consumable' ? 'Consumables' : 'Returnables'} Request Form
+      </h1>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
-            {/* SEARCHABLE SUPERVISOR DROPDOWN */}
+            {/* DYNAMIC SUPERVISOR DROPDOWN */}
             <div className="flex flex-col space-y-1 relative" ref={supervisorRef}>
               <label className="text-sm font-medium text-gray-700">Supervisor Name</label>
               <div className="relative">
@@ -260,7 +353,7 @@ export default function RequestForm() {
               <input
                 type="tel"
                 required
-                placeholder="Enter Whatsapp mobile number"
+                placeholder="Enter WhatsApp mobile number"
                 className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                 value={formData.supervisorMobile}
                 onChange={(e) => setFormData({ ...formData, supervisorMobile: e.target.value.replace(/[^0-9+ ]/g, '') })}
@@ -304,12 +397,11 @@ export default function RequestForm() {
               />
             </div>
 
-            {/* EXPECTED RETURN DATE */}
+            {/* EXPECTED RETURN DATE FIELD - 💡 OPTIONAL (REMOVED 'required' ATTRIBUTE) */}
             <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Expected Return Date</label>
+              <label className="text-sm font-medium text-gray-700">Expected Return Date (Optional)</label>
               <input
                 type="date"
-                required
                 className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                 value={formData.expectedReturn}
                 onChange={(e) => setFormData({ ...formData, expectedReturn: e.target.value })}
@@ -327,34 +419,45 @@ export default function RequestForm() {
             ) : (
               <div className="space-y-4">
                 {items.map((item, index) => {
-                  const masterList = item.type === 'Tools' ? tools : machines;
+                  let masterList = conItems;
+                  if (formMode === 'returnable') {
+                    masterList = item.type === 'Tools' ? tools : machines;
+                  }
+
                   const currentSearch = itemSearch[index] || '';
                   const isOpen = itemOpen[index] || false;
-                  const filteredItems = masterList.filter(availItem =>
-                    availItem.name.toLowerCase().includes(currentSearch.toLowerCase())
-                  );
+                  
+                  // 💡 MULTI-WORD SMART SEARCH FOR ITEMS
+                  const filteredItems = masterList.filter(availItem => {
+                    const searchTerms = currentSearch.toLowerCase().trim().split(/\s+/).filter(Boolean);
+                    const itemNameLower = availItem.name.toLowerCase();
+                    return searchTerms.every(term => itemNameLower.includes(term));
+                  });
                   
                   return (
                     <div key={index} className="flex flex-col sm:flex-row gap-4 items-end bg-gray-50 p-4 rounded-md border border-gray-200 relative">
-                      <div className="w-full sm:w-1/4 flex flex-col space-y-1">
-                        <label className="text-xs font-medium text-gray-600">Category</label>
-                        <select
-                          className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                          value={item.type}
-                          onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
-                        >
-                          <option value="Tools">Tools</option>
-                          <option value="Machine">Machine</option>
-                        </select>
-                      </div>
+                      
+                      {formMode === 'returnable' && (
+                        <div className="w-full sm:w-1/4 flex flex-col space-y-1">
+                          <label className="text-xs font-medium text-gray-600">Category</label>
+                          <select
+                            className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
+                            value={item.type}
+                            onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
+                          >
+                            <option value="Tools">Tools</option>
+                            <option value="Machine">Machine</option>
+                          </select>
+                        </div>
+                      )}
 
-                      <div className="w-full sm:w-2/4 flex flex-col space-y-1 relative" ref={(el) => { itemsRefs.current[index] = el; }}>
+                      <div className={`w-full flex flex-col space-y-1 relative ${formMode === 'returnable' ? 'sm:w-2/4' : 'sm:w-3/4'}`} ref={(el) => { itemsRefs.current[index] = el; }}>
                         <label className="text-xs font-medium text-gray-600">Item Selection</label>
                         <div className="relative">
                           <input
                             type="text"
                             required
-                            placeholder={`🔍 Search ${item.type.toLowerCase()}...`}
+                            placeholder={`🔍 Search item designations...`}
                             className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                             value={currentSearch}
                             onFocus={() => setItemOpen({ ...itemOpen, [index]: true })}
@@ -380,7 +483,7 @@ export default function RequestForm() {
                                         setItemOpen({ ...itemOpen, [index]: false });
                                       }}
                                     >
-                                      {availItem.name} <span className="text-xs opacity-80">(Stock: {availItem.stock})</span>
+                                      {availItem.name}
                                     </div>
                                   ))}
                                 </div>
@@ -414,7 +517,7 @@ export default function RequestForm() {
             <div className={`p-3 rounded-md text-sm font-medium ${message.isError ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{message.text}</div>
           )}
 
-          <button type="submit" disabled={submitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-md text-sm disabled:bg-blue-400">
+          <button type="submit" disabled={submitting} className={`w-full text-white font-semibold py-3 px-4 rounded-md text-sm transition-colors ${formMode === 'consumable' ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400' : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'}`}>
             {submitting ? 'Saving Logs...' : 'Submit Request Form'}
           </button>
         </form>
