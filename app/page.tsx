@@ -312,7 +312,7 @@ export default function TrackerPortal() {
                   type="text"
                   required
                   placeholder="🔍 Search & select supervisor..."
-                  className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                  className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                   value={supSearch}
                   onFocus={() => setSupOpen(true)}
                   onChange={(e) => {
@@ -328,18 +328,18 @@ export default function TrackerPortal() {
                     ) : (
                       <div className="divide-y divide-gray-100">
                         {filteredSupervisors.map((name, i) => (
-                          <div
-                            key={i}
-                            className="p-2 text-sm hover:bg-blue-500 hover:text-white cursor-pointer transition-colors"
-                            onClick={() => {
-                              setFormData({ ...formData, supervisor: name });
-                              setSupSearch(name);
-                              setSupOpen(false);
-                            }}
-                          >
-                            {name}
-                          </div>
-                        ))}
+                         <div
+                         key={i}
+                         className="p-2 text-sm text-gray-800 hover:bg-blue-500 hover:text-white filteredItems.mapcursor-pointer transition-colors"
+                         onClick={() => {
+                                setFormData({ ...formData, supervisor: name });
+                                setSupSearch(name);
+                                setSupOpen(false);
+                              }}
+  >
+                       {name}
+                     </div>
+))}
                       </div>
                     )}
                   </div>
@@ -354,7 +354,7 @@ export default function TrackerPortal() {
                 type="tel"
                 required
                 placeholder="Enter WhatsApp mobile number"
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                 value={formData.supervisorMobile}
                 onChange={(e) => setFormData({ ...formData, supervisorMobile: e.target.value.replace(/[^0-9+ ]/g, '') })}
               />
@@ -391,7 +391,7 @@ export default function TrackerPortal() {
               <input
                 type="text"
                 required
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                 value={formData.location}
                 onChange={(e) => setFormData({ ...formData, location: e.target.value })}
               />
@@ -403,7 +403,7 @@ export default function TrackerPortal() {
               <input
                 type="date"
                 required={formMode === 'returnable'}
-                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                 value={formData.expectedReturn}
                 onChange={(e) => setFormData({ ...formData, expectedReturn: e.target.value })}
               />
@@ -440,16 +440,16 @@ export default function TrackerPortal() {
                       
                       {formMode === 'returnable' && (
                         <div className="w-full sm:w-1/4 flex flex-col space-y-1">
-                          <label className="text-xs font-medium text-gray-600">Category</label>
-                          <select
-                            className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm outline-none focus:ring-1 focus:ring-blue-500"
-                            value={item.type}
-                            onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
-                          >
-                            <option value="Tools">Tools</option>
-                            <option value="Machine">Machine</option>
-                          </select>
-                        </div>
+  <label className="text-xs font-medium text-gray-600">Category</label>
+  <select
+    className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm text-gray-800 outline-none focus:ring-1 focus:ring-blue-500"
+    value={item.type}
+    onChange={(e) => updateItemField(index, 'type', e.target.value as any)}
+  >
+    <option value="Tools" className="text-gray-800">Tools</option>
+    <option value="Machine" className="text-gray-800">Machine</option>
+  </select>
+</div>
                       )}
 
                       <div className={`w-full flex flex-col space-y-1 relative ${formMode === 'returnable' ? 'sm:w-2/4' : 'sm:w-3/4'}`} ref={(el) => { itemsRefs.current[index] = el; }}>
@@ -459,7 +459,7 @@ export default function TrackerPortal() {
                             type="text"
                             required
                             placeholder={`🔍 Search item designations...`}
-                            className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                            className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                             value={currentSearch}
                             onFocus={() => setItemOpen({ ...itemOpen, [index]: true })}
                             onChange={(e) => {
@@ -475,18 +475,18 @@ export default function TrackerPortal() {
                               ) : (
                                 <div className="divide-y divide-gray-100">
                                   {filteredItems.map((availItem, i) => (
-                                    <div
-                                      key={i}
-                                      className="p-2 text-sm hover:bg-blue-500 hover:text-white cursor-pointer transition-colors"
-                                      onClick={() => {
-                                        updateItemField(index, 'itemName', availItem.name);
-                                        setItemSearch({ ...itemSearch, [index]: availItem.name });
-                                        setItemOpen({ ...itemOpen, [index]: false });
-                                      }}
-                                    >
-                                      {availItem.name}
-                                    </div>
-                                  ))}
+  <div
+    key={i}
+    className="p-2 text-sm text-gray-800 hover:bg-blue-500 hover:text-white cursor-pointer transition-colors"
+    onClick={() => {
+      updateItemField(index, 'itemName', availItem.name);
+      setItemSearch({ ...itemSearch, [index]: availItem.name });
+      setItemOpen({ ...itemOpen, [index]: false });
+    }}
+  >
+    {availItem.name}
+  </div>
+))}
                                 </div>
                               )}
                             </div>
@@ -495,13 +495,30 @@ export default function TrackerPortal() {
                       </div>
 
                       <div className="w-full sm:w-1/4 flex flex-col space-y-1">
-                        <label className="text-xs font-medium text-gray-600">Quantity</label>
-                        <div className="qty-container-block flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm">
-                          <button type="button" className="px-3 h-full bg-gray-100 hover:bg-gray-200" onClick={() => handleStepQuantity(index, 'down')}>-</button>
-                          <input type="text" className="w-full text-center text-sm font-semibold outline-none bg-transparent" value={item.quantity} onChange={(e) => updateItemField(index, 'quantity', e.target.value)} />
-                          <button type="button" className="px-3 h-full bg-gray-100 hover:bg-gray-200" onClick={() => handleStepQuantity(index, 'up')}>+</button>
-                        </div>
-                      </div>
+  <label className="text-xs font-medium text-gray-600">Quantity</label>
+  <div className="qty-container-block flex items-center bg-white border border-gray-300 rounded-md h-[38px] overflow-hidden shadow-sm">
+    <button 
+      type="button" 
+      className="px-3 h-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold" 
+      onClick={() => handleStepQuantity(index, 'down')}
+    >
+      -
+    </button>
+    <input 
+      type="text" 
+      className="w-full text-center text-sm font-semibold text-gray-800 outline-none bg-transparent" 
+      value={item.quantity} 
+      onChange={(e) => updateItemField(index, 'quantity', e.target.value)} 
+    />
+    <button 
+      type="button" 
+      className="px-3 h-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold" 
+      onClick={() => handleStepQuantity(index, 'up')}
+    >
+      +
+    </button>
+  </div>
+</div>
 
                       {items.length > 1 && (
                         <button type="button" onClick={() => handleRemoveItemRow(index)} className="text-red-500 border border-red-200 bg-white rounded-md px-3 py-2 h-[38px]">Remove</button>
