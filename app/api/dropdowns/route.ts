@@ -17,71 +17,99 @@ export async function GET() {
     });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Fetch lists from spreadsheets (including Row 2 headers matching for safety)
-    const [mainRes, conRes, rawRes] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `'Master Stock'!A1:Z500` }),
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `'Consumables Master Stock'!A1:Z500` }),
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `'Raw Materials Master Stock'!A1:Z500` }), // 👈 New sheet
-    ]);
-
-    const mainRows = mainRes.data.values || [];
-    const conRows = conRes.data.values || [];
-    const rawRows = rawRes.data.values || [];
-
-    // 1. Process Master Stock Sheet (Supervisor names in row 2)
+    // Arrays to store our dropdown values safely
     let supervisors: string[] = [];
     let tools: string[] = [];
     let machines: string[] = [];
-
-    if (mainRows.length > 1) {
-      const headers = mainRows[1].map((h: any) => String(h).trim().toLowerCase());
-      const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
-      const toolIdx = headers.findIndex((h: string) => h.includes('tool name'));
-      const machIdx = headers.findIndex((h: string) => h.includes('machine name'));
-
-      mainRows.slice(2).forEach((row: any[]) => {
-        if (supIdx !== -1 && row[supIdx] && !supervisors.includes(row[supIdx])) {
-          supervisors.push(String(row[supIdx]).trim());
-        }
-        if (toolIdx !== -1 && row[toolIdx] && !tools.includes(row[toolIdx])) {
-          tools.push(String(row[toolIdx]).trim());
-        }
-        if (machIdx !== -1 && row[machIdx] && !machines.includes(row[machIdx])) {
-          machines.push(String(row[machIdx]).trim());
-        }
-      });
-    }
-
-    // 2. Process Consumables Stock (Row 2 Header map matching)
     let consumableSupervisors: string[] = [];
     let consumableItems: string[] = [];
+    let rawItems: string[] = [];
 
-    if (conRows.length > 1) {
-      const headers = conRows[1].map((h: any) => String(h).trim().toLowerCase());
-      const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
-      const itemIdx = headers.findIndex((h: string) => h.includes('item name'));
+    // ==========================================
+    // 🛡️ SAFE FETCH 1: Master Stock Sheet (Tools/Machines/Supervisors)
+    // ==========================================
+    try {
+      const mainRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'Master Stock'!A1:Z500` });
+      const mainRows = mainRes.data.values || [];
+      if (mainRows.length > 1) {
+        const headers = mainRows[1].map((h: any) => String(h).trim().toLowerCase());
+        const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
+        const toolIdx = headers.findIndex((h: string) => h.includes('tool name'));
+        const machIdx = headers.findIndex((h: string) => h.includes('machine name'));
 
-      conRows.slice(2).forEach((row: any[]) => {
-        if (supIdx !== -1 && row[supIdx] && !consumableSupervisors.includes(row[supIdx])) {
-          consumableSupervisors.push(String(row[supIdx]).trim());
-        }
-        if (itemIdx !== -1 && row[itemIdx] && !consumableItems.includes(row[itemIdx])) {
-          consumableItems.push(String(row[itemIdx]).trim());
-        }
-      });
+        mainRows.slice(2).forEach((row: any[]) => {
+          if (supIdx !== -1 && row[supIdx] && !supervisors.includes(row[supIdx])) {
+            supervisors.push(String(row[supIdx]).trim());
+          }
+          if (toolIdx !== -1 && row[toolIdx] && !tools.includes(row[toolIdx])) {
+            tools.push(String(row[toolIdx]).trim());
+          }
+          if (machIdx !== -1 && row[machIdx] && !machines.includes(row[machIdx])) {
+            machines.push(String(row[machIdx]).trim());
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Error reading 'Master Stock' sheet:", e);
     }
 
-    // 3. Process Raw Materials Stock (Row 2 Header map matching)
-    let rawItems: string[] = [];
-    if (rawRows.length > 1) {
-      const headers = rawRows[1].map((h: any) => String(h).trim().toLowerCase());
-      const itemIdx = headers.findIndex((h: string) => h === 'item name' || h.includes('item name'));
+    // ==========================================
+    // 🛡️ SAFE FETCH 2: Consumables Master Stock
+    // ==========================================
+    try {
+      const conRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'Consumables Master Stock'!A1:Z500` });
+      const conRows = conRes.data.values || [];
+      if (conRows.length > 1) {
+        const headers = conRows[1].map((h: any) => String(h).trim().toLowerCase());
+        const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
+        const itemIdx = headers.findIndex((h: string) => h.includes('item name'));
 
-      rawRows.slice(2).forEach((row: any[]) => {
-        if (itemIdx !== -1 && row[itemIdx] && !rawItems.includes(row[itemIdx])) {
-          rawItems.push(String(row[itemIdx]).trim());
+        conRows.slice(2).forEach((row: any[]) => {
+          if (supIdx !== -1 && row[supIdx] && !consumableSupervisors.includes(row[supIdx])) {
+            consumableSupervisors.push(String(row[supIdx]).trim());
+          }
+          if (itemIdx !== -1 && row[itemIdx] && !consumableItems.includes(row[itemIdx])) {
+            consumableItems.push(String(row[itemIdx]).trim());
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Error reading 'Consumables Master Stock' sheet:", e);
+    }
+
+    // ==========================================
+    // 🛡️ SAFE FETCH 3: Raw Materials Master Stock
+    // ==========================================
+    try {
+      const rawRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'Raw Materials Master Stock'!A1:Z500` });
+      const rawRows = rawRes.data.values || [];
+      
+      // Checking if data rows exist past row 1 or 2
+      if (rawRows.length > 1) {
+        // Try searching row 2 (index 1) for headers first. If row 2 is completely empty, fallback to row 1 (index 0).
+        let targetHeaderRow = rawRows[1];
+        let sliceIndex = 2;
+
+        const hasHeadersInRow2 = rawRows[1] && rawRows[1].some(cell => String(cell).trim() !== '');
+        if (!hasHeadersInRow2 && rawRows[0]) {
+          targetHeaderRow = rawRows[0];
+          sliceIndex = 1;
         }
-      });
+
+        const headers = targetHeaderRow.map((h: any) => String(h).trim().toLowerCase());
+        const itemIdx = headers.findIndex((h: string) => h === 'item name' || h.includes('item name'));
+
+        if (itemIdx !== -1) {
+          rawRows.slice(sliceIndex).forEach((row: any[]) => {
+            if (row[itemIdx] && !rawItems.includes(row[itemIdx])) {
+              rawItems.push(String(row[itemIdx]).trim());
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error reading 'Raw Materials Master Stock' sheet:", e);
+      // Fails silently for this sheet so it doesn't break Tools/Machines/Consumables
     }
 
     return NextResponse.json({
@@ -91,7 +119,7 @@ export async function GET() {
       machines: machines.filter(Boolean),
       consumableSupervisors: consumableSupervisors.length > 0 ? consumableSupervisors.filter(Boolean) : supervisors.filter(Boolean),
       consumableItems: consumableItems.filter(Boolean),
-      rawItems: rawItems.filter(Boolean), // 👈 Output values
+      rawItems: rawItems.filter(Boolean),
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
