@@ -24,9 +24,10 @@ export async function GET() {
     let consumableSupervisors: string[] = [];
     let consumableItems: string[] = [];
     let rawItems: string[] = [];
+    let returnableItems: string[] = []; // Combines tools & machines
 
     // ==========================================
-    // 🛡️ SAFE FETCH 1: Master Stock Sheet (Tools/Machines/Supervisors)
+    // 🛡️ SAFE FETCH 1: Master Stock Sheet (Tools/Machines/Supervisors/Returnables)
     // ==========================================
     try {
       const mainRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'Master Stock'!A1:Z500` });
@@ -38,14 +39,23 @@ export async function GET() {
         const machIdx = headers.findIndex((h: string) => h.includes('machine name'));
 
         mainRows.slice(2).forEach((row: any[]) => {
+          // 1. Extract Supervisors
           if (supIdx !== -1 && row[supIdx] && !supervisors.includes(row[supIdx])) {
             supervisors.push(String(row[supIdx]).trim());
           }
-          if (toolIdx !== -1 && row[toolIdx] && !tools.includes(row[toolIdx])) {
-            tools.push(String(row[toolIdx]).trim());
+          
+          // 2. Extract Tools & add to Returnables
+          if (toolIdx !== -1 && row[toolIdx]) {
+            const toolValue = String(row[toolIdx]).trim();
+            if (!tools.includes(toolValue)) tools.push(toolValue);
+            if (!returnableItems.includes(toolValue)) returnableItems.push(toolValue);
           }
-          if (machIdx !== -1 && row[machIdx] && !machines.includes(row[machIdx])) {
-            machines.push(String(row[machIdx]).trim());
+          
+          // 3. Extract Machines & add to Returnables
+          if (machIdx !== -1 && row[machIdx]) {
+            const machineValue = String(row[machIdx]).trim();
+            if (!machines.includes(machineValue)) machines.push(machineValue);
+            if (!returnableItems.includes(machineValue)) returnableItems.push(machineValue);
           }
         });
       }
@@ -62,7 +72,11 @@ export async function GET() {
       if (conRows.length > 1) {
         const headers = conRows[1].map((h: any) => String(h).trim().toLowerCase());
         const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
-        const itemIdx = headers.findIndex((h: string) => h.includes('item name'));
+        
+        // Flexible fallback matching for common consumable item column variations
+        const itemIdx = headers.findIndex((h: string) => 
+          h.includes('item name') || h.includes('item') || h.includes('consumable name') || h.includes('material')
+        );
 
         conRows.slice(2).forEach((row: any[]) => {
           if (supIdx !== -1 && row[supIdx] && !consumableSupervisors.includes(row[supIdx])) {
@@ -84,9 +98,7 @@ export async function GET() {
       const rawRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `'Raw Materials Master Stock'!A1:Z500` });
       const rawRows = rawRes.data.values || [];
       
-      // Checking if data rows exist past row 1 or 2
       if (rawRows.length > 1) {
-        // Try searching row 2 (index 1) for headers first. If row 2 is completely empty, fallback to row 1 (index 0).
         let targetHeaderRow = rawRows[1];
         let sliceIndex = 2;
 
@@ -109,9 +121,9 @@ export async function GET() {
       }
     } catch (e) {
       console.error("Error reading 'Raw Materials Master Stock' sheet:", e);
-      // Fails silently for this sheet so it doesn't break Tools/Machines/Consumables
     }
 
+    // Clean out empty string values and return final object payloads
     return NextResponse.json({
       success: true,
       supervisors: supervisors.filter(Boolean),
@@ -120,6 +132,7 @@ export async function GET() {
       consumableSupervisors: consumableSupervisors.length > 0 ? consumableSupervisors.filter(Boolean) : supervisors.filter(Boolean),
       consumableItems: consumableItems.filter(Boolean),
       rawItems: rawItems.filter(Boolean),
+      returnableItems: returnableItems.filter(Boolean)
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
