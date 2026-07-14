@@ -1,16 +1,6 @@
 import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 
-function getColumnLetter(colIndex: number): string {
-  let temp = colIndex;
-  let letter = '';
-  while (temp >= 0) {
-    letter = String.fromCharCode((temp % 26) + 65) + letter;
-    temp = Math.floor(temp / 26) - 1;
-  }
-  return letter;
-}
-
 export async function GET() {
   try {
     const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -27,50 +17,81 @@ export async function GET() {
     });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // --- 1. FETCH RETURNABLES DROPDOWNS (EXISTING) ---
-    const returnableSheet = 'Master Stock';
-    const retHeaderRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${returnableSheet}!2:2` });
-    const retHeaders = retHeaderRes.data.values?.[0] || [];
-    
-    const idxTools = retHeaders.findIndex(h => String(h).trim().toLowerCase() === 'tools name');
-    const idxMachines = retHeaders.findIndex(h => String(h).trim().toLowerCase() === 'machines name');
-    const idxSupervisors = retHeaders.findIndex(h => String(h).trim().toLowerCase() === 'supervisor name');
-
-    const toolsCol = idxTools !== -1 ? getColumnLetter(idxTools) : 'B';
-    const machinesCol = idxMachines !== -1 ? getColumnLetter(idxMachines) : 'J';
-    const supervisorsCol = idxSupervisors !== -1 ? getColumnLetter(idxSupervisors) : 'R';
-
-    const [toolsRes, machinesRes, supervisorsRes] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `${returnableSheet}!${toolsCol}3:${toolsCol}` }),
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `${returnableSheet}!${machinesCol}3:${machinesCol}` }),
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `${returnableSheet}!${supervisorsCol}3:${supervisorsCol}` }),
+    // Fetch lists from spreadsheets (including Row 2 headers matching for safety)
+    const [mainRes, conRes, rawRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId, range: `'Master Stock'!A1:Z500` }),
+      sheets.spreadsheets.values.get({ spreadsheetId, range: `'Consumables Master Stock'!A1:Z500` }),
+      sheets.spreadsheets.values.get({ spreadsheetId, range: `'Raw Materials Master Stock'!A1:Z500` }), // 👈 New sheet
     ]);
 
-    // --- 2. FETCH CONSUMABLES DROPDOWNS (NEW) ---
-    const consumableSheet = 'Consumable Master Stock';
-    const conHeaderRes = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${consumableSheet}!2:2` });
-    const conHeaders = conHeaderRes.data.values?.[0] || [];
+    const mainRows = mainRes.data.values || [];
+    const conRows = conRes.data.values || [];
+    const rawRows = rawRes.data.values || [];
 
-    const idxConItems = conHeaders.findIndex(h => String(h).trim().toLowerCase() === 'item name');
-    const idxConSups = conHeaders.findIndex(h => String(h).trim().toLowerCase() === 'supervisor name');
+    // 1. Process Master Stock Sheet (Supervisor names in row 2)
+    let supervisors: string[] = [];
+    let tools: string[] = [];
+    let machines: string[] = [];
 
-    const conItemsCol = idxConItems !== -1 ? getColumnLetter(idxConItems) : 'A';
-    const conSupsCol = idxConSups !== -1 ? getColumnLetter(idxConSups) : 'B';
+    if (mainRows.length > 1) {
+      const headers = mainRows[1].map((h: any) => String(h).trim().toLowerCase());
+      const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
+      const toolIdx = headers.findIndex((h: string) => h.includes('tool name'));
+      const machIdx = headers.findIndex((h: string) => h.includes('machine name'));
 
-    const [conItemsRes, conSupsRes] = await Promise.all([
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `${consumableSheet}!${conItemsCol}3:${conItemsCol}` }),
-      sheets.spreadsheets.values.get({ spreadsheetId, range: `${consumableSheet}!${conSupsCol}3:${conSupsCol}` }),
-    ]);
+      mainRows.slice(2).forEach((row: any[]) => {
+        if (supIdx !== -1 && row[supIdx] && !supervisors.includes(row[supIdx])) {
+          supervisors.push(String(row[supIdx]).trim());
+        }
+        if (toolIdx !== -1 && row[toolIdx] && !tools.includes(row[toolIdx])) {
+          tools.push(String(row[toolIdx]).trim());
+        }
+        if (machIdx !== -1 && row[machIdx] && !machines.includes(row[machIdx])) {
+          machines.push(String(row[machIdx]).trim());
+        }
+      });
+    }
+
+    // 2. Process Consumables Stock (Row 2 Header map matching)
+    let consumableSupervisors: string[] = [];
+    let consumableItems: string[] = [];
+
+    if (conRows.length > 1) {
+      const headers = conRows[1].map((h: any) => String(h).trim().toLowerCase());
+      const supIdx = headers.findIndex((h: string) => h.includes('supervisor name'));
+      const itemIdx = headers.findIndex((h: string) => h.includes('item name'));
+
+      conRows.slice(2).forEach((row: any[]) => {
+        if (supIdx !== -1 && row[supIdx] && !consumableSupervisors.includes(row[supIdx])) {
+          consumableSupervisors.push(String(row[supIdx]).trim());
+        }
+        if (itemIdx !== -1 && row[itemIdx] && !consumableItems.includes(row[itemIdx])) {
+          consumableItems.push(String(row[itemIdx]).trim());
+        }
+      });
+    }
+
+    // 3. Process Raw Materials Stock (Row 2 Header map matching)
+    let rawItems: string[] = [];
+    if (rawRows.length > 1) {
+      const headers = rawRows[1].map((h: any) => String(h).trim().toLowerCase());
+      const itemIdx = headers.findIndex((h: string) => h === 'item name' || h.includes('item name'));
+
+      rawRows.slice(2).forEach((row: any[]) => {
+        if (itemIdx !== -1 && row[itemIdx] && !rawItems.includes(row[itemIdx])) {
+          rawItems.push(String(row[itemIdx]).trim());
+        }
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      // Returnables packages
-      tools: (toolsRes.data.values?.flat() || []).map(t => String(t).trim()).filter(Boolean),
-      machines: (machinesRes.data.values?.flat() || []).map(m => String(m).trim()).filter(Boolean),
-      supervisors: (supervisorsRes.data.values?.flat() || []).map(s => String(s).trim()).filter(Boolean),
-      // Consumables packages
-      consumableItems: (conItemsRes.data.values?.flat() || []).map(i => String(i).trim()).filter(Boolean),
-      consumableSupervisors: (conSupsRes.data.values?.flat() || []).map(s => String(s).trim()).filter(Boolean),
+      supervisors: supervisors.filter(Boolean),
+      tools: tools.filter(Boolean),
+      machines: machines.filter(Boolean),
+      consumableSupervisors: consumableSupervisors.length > 0 ? consumableSupervisors.filter(Boolean) : supervisors.filter(Boolean),
+      consumableItems: consumableItems.filter(Boolean),
+      rawItems: rawItems.filter(Boolean), // 👈 Output values
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

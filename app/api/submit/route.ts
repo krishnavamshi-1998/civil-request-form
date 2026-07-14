@@ -26,9 +26,6 @@ export async function POST(request: Request) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     // ==========================================================
-    // 🔍 DYNAMIC LOOKUP: FETCH CONTACT FROM MASTER STOCK SHEET
-    // ==========================================================
-    // ==========================================================
     // 🔍 DYNAMIC LOOKUP: FETCH CONTACT FROM MASTER STOCK SHEET (ROW 2 HEADERS)
     // ==========================================================
     let supervisorMobile = '';
@@ -39,14 +36,12 @@ export async function POST(request: Request) {
       });
       const masterRows = masterStockResponse.data.values || [];
       
-      // 🎯 CHANGED: Look at row 2 (index 1) for headers because row 1 is empty or a title
       if (masterRows.length > 1) {
         const masterHeaders = masterRows[1].map(h => String(h).trim().toLowerCase());
         const supNameIdx = masterHeaders.findIndex(h => h.includes('supervisor name') || h === 'supervisor');
         const supContactIdx = masterHeaders.findIndex(h => h.includes('supervisor contact') || h.includes('contact'));
 
         if (supNameIdx !== -1 && supContactIdx !== -1) {
-          // 🎯 CHANGED: Slice from index 2 (row 3) downwards to read the actual data rows
           const matchedRow = masterRows.slice(2).find(row => {
             const cellValue = row[supNameIdx] ? String(row[supNameIdx]).trim().toLowerCase() : '';
             const searchValues = String(supervisor).trim().toLowerCase();
@@ -61,7 +56,6 @@ export async function POST(request: Request) {
     } catch (lookupError) {
       console.error("Failed to fetch contact from Master Stock sheet lookup system:", lookupError);
     }
-    // ==========================================================
     // ==========================================================
 
     const now = new Date();
@@ -109,7 +103,7 @@ export async function POST(request: Request) {
         if (idxSNo !== -1) rowData[idxSNo] = '=ROW()-1';
         if (idxTimestamp !== -1) rowData[idxTimestamp] = timestamp;
         if (idxSupervisor !== -1) rowData[idxSupervisor] = String(supervisor).trim();
-        if (idxMobile !== -1) rowData[idxMobile] = supervisorMobile; // Populated from Master Stock mapping
+        if (idxMobile !== -1) rowData[idxMobile] = supervisorMobile; 
         if (idxLocation !== -1) rowData[idxLocation] = String(location).trim();
         if (idxIssuedTo !== -1) rowData[idxIssuedTo] = String(issuedTo).trim();
         if (idxItemName !== -1) rowData[idxItemName] = String(item.itemName || 'Unknown').trim();
@@ -130,8 +124,11 @@ export async function POST(request: Request) {
       });
     }
 
+    // Match output destinations cleanly
     if (formClass === 'consumable') {
       await appendToSheetDynamic('Consumables', items);
+    } else if (formClass === 'raw_materials') {
+      await appendToSheetDynamic('Raw Materials', items); // 👈 Write Raw Materials entries to 'Raw Materials' sheet
     } else {
       const toolItems = items.filter((item: any) => !String(item.type).toLowerCase().includes('machine'));
       const machineItems = items.filter((item: any) => String(item.type).toLowerCase().includes('machine'));
@@ -142,7 +139,7 @@ export async function POST(request: Request) {
     // 📧 EMAIL DISPATCHER 
     // ==========================================
     try {
-      const managerEmail = "anandsk333@gmail.com"; 
+      const managerEmail = "STORE_MANAGER_EMAIL@GMAIL.COM"; 
       const senderEmail = process.env.ALERT_EMAIL_USER;       
       const senderPass = process.env.ALERT_EMAIL_PASS;       
 
@@ -152,13 +149,16 @@ export async function POST(request: Request) {
           auth: { user: senderEmail, pass: senderPass }
         });
 
-        const formTypeName = formClass === 'consumable' ? 'Consumables' : 'Returnables';
+        let formTypeName = 'Returnables';
+        if (formClass === 'consumable') formTypeName = 'Consumables';
+        if (formClass === 'raw_materials') formTypeName = 'Raw Materials';
+
         const itemRowsHtml = (items || []).map((i: any) => `<li><strong>[${i.type || formTypeName}]</strong> ${i.itemName || ''} — Qty: ${i.quantity || 1}</li>`).join('');
 
         const mailOptions = {
           from: `"Material Portal Alert" <${senderEmail}>`,
           to: managerEmail,
-          subject: `⚠️ New ${formTypeName} Request Submitted - ${supervisor} - Civil Dept`,
+          subject: `⚠️ New ${formTypeName} Request Submitted - ${supervisor}`,
           html: `
             <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; border: 1px solid #eee; border-radius: 8px;">
               <h2 style="color: #1e3a8a; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-top: 0;">Material Issue Notification</h2>

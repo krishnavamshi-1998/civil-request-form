@@ -8,13 +8,13 @@ interface DropdownItem {
 }
 
 interface FormItem {
-  type: 'Tools' | 'Machine' | 'Consumable';
+  type: 'Tools' | 'Machine' | 'Consumable' | 'Raw Material';
   itemName: string;
   quantity: string; 
 }
 
 export default function TrackerPortal() {
-  const [formMode, setFormMode] = useState<'selection' | 'returnable' | 'consumable'>('selection');
+  const [formMode, setFormMode] = useState<'selection' | 'returnable' | 'consumable' | 'raw_materials'>('selection');
 
   const [formData, setFormData] = useState({
     supervisor: '',
@@ -23,7 +23,7 @@ export default function TrackerPortal() {
     issuedTo: 'Civil Dept', 
   });
 
-  const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
+  const [department, setDepartment] = useState<'Fabrication' | 'Other'>('Fabrication');
   const [items, setItems] = useState<FormItem[]>([
     { type: 'Tools', itemName: '', quantity: '' }
   ]);
@@ -34,6 +34,8 @@ export default function TrackerPortal() {
   
   const [conItems, setConItems] = useState<DropdownItem[]>([]);
   const [conSupervisors, setConSupervisors] = useState<string[]>([]);
+
+  const [rawItems, setRawItems] = useState<DropdownItem[]>([]); // 👈 Store Raw Materials state list
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -50,12 +52,12 @@ export default function TrackerPortal() {
 
   useEffect(() => {
     try {
-      const savedMode = sessionStorage.getItem('Civil_form_mode');
-      const savedFormData = sessionStorage.getItem('Civil_form_data');
-      const savedDept = sessionStorage.getItem('Civil_dept');
-      const savedItems = sessionStorage.getItem('Civil_items');
-      const savedSupSearch = sessionStorage.getItem('Civil_sup_search');
-      const savedItemSearch = sessionStorage.getItem('Civil_item_search');
+      const savedMode = sessionStorage.getItem('civil_form_mode');
+      const savedFormData = sessionStorage.getItem('civil_form_data');
+      const savedDept = sessionStorage.getItem('civil_dept');
+      const savedItems = sessionStorage.getItem('civil_items');
+      const savedSupSearch = sessionStorage.getItem('civil_sup_search');
+      const savedItemSearch = sessionStorage.getItem('civil_item_search');
 
       if (savedMode) setFormMode(savedMode as any);
       if (savedFormData) setFormData(JSON.parse(savedFormData));
@@ -70,41 +72,45 @@ export default function TrackerPortal() {
 
   useEffect(() => {
     if (loading) return; 
-    sessionStorage.setItem('Civil_form_mode', formMode);
-    sessionStorage.setItem('Civil_form_data', JSON.stringify(formData));
-    sessionStorage.setItem('Civil_dept', department);
-    sessionStorage.setItem('Civil_items', JSON.stringify(items));
-    sessionStorage.setItem('Civil_sup_search', supSearch);
-    sessionStorage.setItem('Civil_item_search', JSON.stringify(itemSearch));
+    sessionStorage.setItem('civil_form_mode', formMode);
+    sessionStorage.setItem('civil_form_data', JSON.stringify(formData));
+    sessionStorage.setItem('civil_dept', department);
+    sessionStorage.setItem('civil_items', JSON.stringify(items));
+    sessionStorage.setItem('civil_sup_search', supSearch);
+    sessionStorage.setItem('civil_item_search', JSON.stringify(itemSearch));
   }, [formMode, formData, department, items, supSearch, itemSearch, loading]);
 
-  const handleModeSelection = (mode: 'returnable' | 'consumable') => {
+  const handleModeSelection = (mode: 'returnable' | 'consumable' | 'raw_materials') => {
     setFormMode(mode);
     setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
-    setDepartment('Civil');
+    setDepartment('Fabrication');
     setSupSearch('');
     setItemSearch({});
-    setItems([{ type: mode === 'returnable' ? 'Tools' : 'Consumable', itemName: '', quantity: '' }]);
+    
+    // Set initial item state array based on selected mode
+    const defaultType = mode === 'returnable' ? 'Tools' : (mode === 'consumable' ? 'Consumable' : 'Raw Material');
+    setItems([{ type: defaultType, itemName: '', quantity: '' }]);
     setMessage({ text: '', isError: false });
   };
 
   const clearSessionBackup = () => {
-    sessionStorage.removeItem('Civil_form_data');
-    sessionStorage.removeItem('Civil_dept');
-    sessionStorage.removeItem('Civil_items');
-    sessionStorage.removeItem('Civil_sup_search');
-    sessionStorage.removeItem('Civil_item_search');
+    sessionStorage.removeItem('civil_form_data');
+    sessionStorage.removeItem('civil_dept');
+    sessionStorage.removeItem('civil_items');
+    sessionStorage.removeItem('civil_sup_search');
+    sessionStorage.removeItem('civil_item_search');
     setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
-    setDepartment('Civil');
+    setDepartment('Fabrication');
     setSupSearch('');
     setItemSearch({});
-    setItems([{ type: formMode === 'consumable' ? 'Consumable' : 'Tools', itemName: '', quantity: '' }]);
+    const defaultType = formMode === 'returnable' ? 'Tools' : (formMode === 'consumable' ? 'Consumable' : 'Raw Material');
+    setItems([{ type: defaultType, itemName: '', quantity: '' }]);
   };
 
   useEffect(() => {
     setFormData(prev => ({
       ...prev,
-      issuedTo: department === 'Civil' ? 'Civil Dept' : 'Other Depts'
+      issuedTo: department === 'Fabrication' ? 'Civil Dept' : 'Other Depts'
     }));
   }, [department]);
 
@@ -121,6 +127,7 @@ export default function TrackerPortal() {
           
           setConSupervisors(json.consumableSupervisors || []);
           setConItems((json.consumableItems || []).map((i: any) => ({ name: String(i), stock: 'Live' })));
+          setRawItems((json.rawItems || []).map((r: any) => ({ name: String(r), stock: 'Live' }))); // Load raw materials
         }
       } catch (err) {
         console.error('Failed to load tracking data drop values:', err);
@@ -157,7 +164,7 @@ export default function TrackerPortal() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const activeSupervisorsList = formMode === 'consumable' ? conSupervisors : supervisors;
+  const activeSupervisorsList = (formMode === 'consumable' || formMode === 'raw_materials') ? conSupervisors : supervisors;
   
   const filteredSupervisors = activeSupervisorsList.filter(name => {
     const searchTerms = supSearch.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -166,7 +173,8 @@ export default function TrackerPortal() {
   });
 
   const handleAddItemRow = () => {
-    setItems([...items, { type: formMode === 'consumable' ? 'Consumable' : 'Tools', itemName: '', quantity: '' }]);
+    const defaultType = formMode === 'returnable' ? 'Tools' : (formMode === 'consumable' ? 'Consumable' : 'Raw Material');
+    setItems([...items, { type: defaultType, itemName: '', quantity: '' }]);
   };
 
   const handleRemoveItemRow = (index: number) => {
@@ -259,7 +267,7 @@ export default function TrackerPortal() {
             <h1 className="text-2xl font-bold text-gray-800">Civil Tracker Request Portal</h1>
             <p className="text-gray-500 text-sm mt-1">Please select the type of items you wish to issue</p>
           </div>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 animate-fade-in">
             <button
               onClick={() => handleModeSelection('returnable')}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-4 rounded-md transition-all text-sm shadow-sm"
@@ -272,21 +280,33 @@ export default function TrackerPortal() {
             >
               📦 Consumables Form (Materials)
             </button>
+            <button
+              onClick={() => handleModeSelection('raw_materials')}
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-4 px-4 rounded-md transition-all text-sm shadow-sm"
+            >
+              🪵 Raw Materials Form
+            </button>
           </div>
         </div>
       </main>
     );
   }
 
+  const getFormTitle = () => {
+    if (formMode === 'consumable') return 'Consumables';
+    if (formMode === 'raw_materials') return 'Raw Materials';
+    return 'Returnables';
+  };
+
   return (
     <main className="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8 relative pt-14 sm:pt-16">
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8 relative pt-14 sm:pt-16 animate-fade-in">
         
         <button
           type="button"
           onClick={() => {
             setFormMode('selection');
-            sessionStorage.setItem('Civil_form_mode', 'selection');
+            sessionStorage.setItem('civil_form_mode', 'selection');
           }}
           className="absolute left-6 top-5 text-xs font-semibold text-gray-600 hover:text-blue-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded transition-all shadow-sm border border-gray-200"
         >
@@ -294,13 +314,13 @@ export default function TrackerPortal() {
         </button>
 
         <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center border-b pb-4">
-          Civil {formMode === 'consumable' ? 'Consumables' : 'Returnables'} Request Form
+          Civil {getFormTitle()} Request Form
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             
-            {/* DYNAMIC SUPERVISOR DROPDOWN (Now takes full width single row cleanly since phone field is removed) */}
+            {/* SUPERVISOR DROPDOWN */}
             <div className="flex flex-col space-y-1 relative col-span-1 sm:col-span-2" ref={supervisorRef}>
               <label className="text-sm font-medium text-gray-700">Supervisor Name</label>
               <div className="relative">
@@ -349,9 +369,9 @@ export default function TrackerPortal() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setDepartment('Civil')}
+                  onClick={() => setDepartment('Fabrication')}
                   className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all duration-150 ${
-                    department === 'Civil' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
+                    department === 'Fabrication' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
                   }`}
                 >
                   Civil Dept
@@ -383,7 +403,7 @@ export default function TrackerPortal() {
             {/* EXPECTED RETURN DATE FIELD */}
             <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
               <label className="text-sm font-medium text-gray-700">
-                Expected Return Date {formMode === 'consumable' ? '(Optional)' : ''}
+                Expected Return Date {(formMode === 'consumable' || formMode === 'raw_materials') ? '(Optional)' : ''}
               </label>
               <input
                 type="date"
@@ -408,6 +428,8 @@ export default function TrackerPortal() {
                   let masterList = conItems;
                   if (formMode === 'returnable') {
                     masterList = item.type === 'Tools' ? tools : machines;
+                  } else if (formMode === 'raw_materials') {
+                    masterList = rawItems; // Use raw materials list mapping
                   }
 
                   const currentSearch = itemSearch[index] || '';
@@ -502,7 +524,17 @@ export default function TrackerPortal() {
             <div className={`p-3 rounded-md text-sm font-medium ${message.isError ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{message.text}</div>
           )}
 
-          <button type="submit" disabled={submitting} className={`w-full text-white font-semibold py-3 px-4 rounded-md text-sm transition-colors ${formMode === 'consumable' ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400' : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'}`}>
+          <button 
+            type="submit" 
+            disabled={submitting} 
+            className={`w-full text-white font-semibold py-3 px-4 rounded-md text-sm transition-colors ${
+              formMode === 'consumable' 
+                ? 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400' 
+                : formMode === 'raw_materials' 
+                ? 'bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400' 
+                : 'bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400'
+            }`}
+          >
             {submitting ? 'Saving Logs...' : 'Submit Request Form'}
           </button>
         </form>
