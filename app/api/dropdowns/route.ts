@@ -17,15 +17,16 @@ export async function GET() {
     });
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Supervisors are now stored as objects: { name: string, phone: string }
-    let supervisors: { name: string; phone: string }[] = [];
+    // Keep these as clean string arrays to prevent frontend page crashes
+    let supervisors: string[] = [];
+    let consumableSupervisors: string[] = [];
+    
+    // Use this flat key-value map to look up contact numbers instantly
+    let supervisorContacts: Record<string, string> = {};
+
     let tools: string[] = [];
     let machines: string[] = [];
-    
-    // Consumables variables
-    let consumableSupervisors: { name: string; phone: string }[] = [];
     let consumableItems: string[] = [];
-    
     let rawItems: string[] = [];
     let returnableItems: string[] = [];
 
@@ -60,7 +61,6 @@ export async function GET() {
       
       if (mainRows.length > 0) {
         const supMatch = findColumnIndex(mainRows, ['supervisor name', 'supervisor']);
-        // Scan specifically for "Supervisor Contact" or "Contact" 
         const contactMatch = findColumnIndex(mainRows, ['supervisor contact', 'contact', 'phone', 'mobile']);
         const toolMatch = findColumnIndex(mainRows, ['tools name', 'tool name', 'tool']);
         const machMatch = findColumnIndex(mainRows, ['machines name', 'machine name', 'machine']);
@@ -68,13 +68,17 @@ export async function GET() {
         const startRow = Math.max(supMatch.dataStartRow, contactMatch.dataStartRow, toolMatch.dataStartRow, machMatch.dataStartRow);
 
         mainRows.slice(startRow).forEach((row: any[]) => {
-          // Extract Supervisor Name & Supervisor Contact
+          // Extract Supervisor Name & Map to Contact Number
           if (supMatch.index !== -1 && row[supMatch.index]) {
             const nameVal = String(row[supMatch.index]).trim();
             const phoneVal = contactMatch.index !== -1 && row[contactMatch.index] ? String(row[contactMatch.index]).trim() : '';
             
-            if (nameVal && !supervisors.some(s => s.name === nameVal)) {
-              supervisors.push({ name: nameVal, phone: phoneVal });
+            if (nameVal) {
+              if (!supervisors.includes(nameVal)) {
+                supervisors.push(nameVal);
+              }
+              // Save details safely in our lookup dictionary
+              supervisorContacts[nameVal] = phoneVal;
             }
           }
           
@@ -112,14 +116,10 @@ export async function GET() {
         const startRow = Math.max(supMatch.dataStartRow, itemMatch.dataStartRow);
 
         conRows.slice(startRow).forEach((row: any[]) => {
-          // If Consumables sheet lists custom supervisor columns, capture them
           if (supMatch.index !== -1 && row[supMatch.index]) {
             const nameVal = String(row[supMatch.index]).trim();
-            // Try to look up contact matching Tools sheet, fallback to empty string if not found
-            const matchedContact = supervisors.find(s => s.name === nameVal)?.phone || '';
-            
-            if (nameVal && !consumableSupervisors.some(s => s.name === nameVal)) {
-              consumableSupervisors.push({ name: nameVal, phone: matchedContact });
+            if (nameVal && !consumableSupervisors.includes(nameVal)) {
+              consumableSupervisors.push(nameVal);
             }
           }
           if (itemMatch.index !== -1 && row[itemMatch.index]) {
@@ -157,18 +157,18 @@ export async function GET() {
       console.error("Error reading 'Raw Materials Master Stock' sheet:", e);
     }
 
-    // Filter helper for supervisor objects ensuring we only return valid populated objects
-    const validSupervisors = supervisors.filter(s => s.name);
-    const validConsumableSupervisors = consumableSupervisors.length > 0 
-      ? consumableSupervisors.filter(s => s.name) 
-      : validSupervisors;
+    const cleanSupervisors = supervisors.filter(Boolean);
+    const cleanConsumableSupervisors = consumableSupervisors.length > 0 
+      ? consumableSupervisors.filter(Boolean) 
+      : cleanSupervisors;
 
     return NextResponse.json({
       success: true,
-      supervisors: validSupervisors,
+      supervisors: cleanSupervisors,
+      supervisorContacts, // Returns lookup key-value map safely
       tools: tools.filter(Boolean),
       machines: machines.filter(Boolean),
-      consumableSupervisors: validConsumableSupervisors,
+      consumableSupervisors: cleanConsumableSupervisors,
       consumableItems: consumableItems.filter(Boolean),
       rawItems: rawItems.filter(Boolean),
       returnableItems: returnableItems.filter(Boolean)
