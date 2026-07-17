@@ -20,7 +20,8 @@ export default function TrackerPortal() {
     supervisor: '',
     location: '',
     expectedReturn: '',
-    issuedTo: 'Civil Dept', 
+    issuedTo: 'Civil Dept',
+    jiraTicket: '', // Added tracking key for Jira ticket data allocation
   });
 
   const [department, setDepartment] = useState<'Fabrication' | 'Other'>('Fabrication');
@@ -35,7 +36,7 @@ export default function TrackerPortal() {
   const [conItems, setConItems] = useState<DropdownItem[]>([]);
   const [conSupervisors, setConSupervisors] = useState<string[]>([]);
 
-  const [rawItems, setRawItems] = useState<DropdownItem[]>([]); // 👈 Store Raw Materials state list
+  const [rawItems, setRawItems] = useState<DropdownItem[]>([]); 
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -50,6 +51,7 @@ export default function TrackerPortal() {
   const supervisorRef = useRef<HTMLDivElement>(null);
   const itemsRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
 
+  // Restore temporary form layout memory profile on initial component mount
   useEffect(() => {
     try {
       const savedMode = sessionStorage.getItem('civil_form_mode');
@@ -70,8 +72,9 @@ export default function TrackerPortal() {
     }
   }, []);
 
+  // Backup active layout variables to browser session storage loop
   useEffect(() => {
-    if (loading) return; 
+    if (loading) return;
     sessionStorage.setItem('civil_form_mode', formMode);
     sessionStorage.setItem('civil_form_data', JSON.stringify(formData));
     sessionStorage.setItem('civil_dept', department);
@@ -80,40 +83,7 @@ export default function TrackerPortal() {
     sessionStorage.setItem('civil_item_search', JSON.stringify(itemSearch));
   }, [formMode, formData, department, items, supSearch, itemSearch, loading]);
 
-  const handleModeSelection = (mode: 'returnable' | 'consumable' | 'raw_materials') => {
-    setFormMode(mode);
-    setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
-    setDepartment('Fabrication');
-    setSupSearch('');
-    setItemSearch({});
-    
-    // Set initial item state array based on selected mode
-    const defaultType = mode === 'returnable' ? 'Tools' : (mode === 'consumable' ? 'Consumable' : 'Raw Material');
-    setItems([{ type: defaultType, itemName: '', quantity: '' }]);
-    setMessage({ text: '', isError: false });
-  };
-
-  const clearSessionBackup = () => {
-    sessionStorage.removeItem('civil_form_data');
-    sessionStorage.removeItem('civil_dept');
-    sessionStorage.removeItem('civil_items');
-    sessionStorage.removeItem('civil_sup_search');
-    sessionStorage.removeItem('civil_item_search');
-    setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept' });
-    setDepartment('Fabrication');
-    setSupSearch('');
-    setItemSearch({});
-    const defaultType = formMode === 'returnable' ? 'Tools' : (formMode === 'consumable' ? 'Consumable' : 'Raw Material');
-    setItems([{ type: defaultType, itemName: '', quantity: '' }]);
-  };
-
-  useEffect(() => {
-    setFormData(prev => ({
-      ...prev,
-      issuedTo: department === 'Fabrication' ? 'Civil Dept' : 'Other Depts'
-    }));
-  }, [department]);
-
+  // Independent asynchronous dataset collection loop
   useEffect(() => {
     async function fetchDropdownData() {
       try {
@@ -127,7 +97,7 @@ export default function TrackerPortal() {
           
           setConSupervisors(json.consumableSupervisors || []);
           setConItems((json.consumableItems || []).map((i: any) => ({ name: String(i), stock: 'Live' })));
-          setRawItems((json.rawItems || []).map((r: any) => ({ name: String(r), stock: 'Live' }))); // Load raw materials
+          setRawItems((json.rawItems || []).map((r: any) => ({ name: String(r), stock: 'Live' })));
         }
       } catch (err) {
         console.error('Failed to load tracking data drop values:', err);
@@ -163,6 +133,39 @@ export default function TrackerPortal() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      issuedTo: department === 'Fabrication' ? 'Civil Dept' : 'Other Depts'
+    }));
+  }, [department]);
+
+  const handleModeSelection = (mode: 'returnable' | 'consumable' | 'raw_materials') => {
+    setFormMode(mode);
+    setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept', jiraTicket: '' });
+    setDepartment('Fabrication');
+    setSupSearch('');
+    setItemSearch({});
+    
+    const defaultType = mode === 'returnable' ? 'Tools' : (mode === 'consumable' ? 'Consumable' : 'Raw Material');
+    setItems([{ type: defaultType, itemName: '', quantity: '' }]);
+    setMessage({ text: '', isError: false });
+  };
+
+  const clearSessionBackup = () => {
+    sessionStorage.removeItem('civil_form_data');
+    sessionStorage.removeItem('civil_dept');
+    sessionStorage.removeItem('civil_items');
+    sessionStorage.removeItem('civil_sup_search');
+    sessionStorage.removeItem('civil_item_search');
+    setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept', jiraTicket: '' });
+    setDepartment('Fabrication');
+    setSupSearch('');
+    setItemSearch({});
+    const defaultType = formMode === 'returnable' ? 'Tools' : (formMode === 'consumable' ? 'Consumable' : 'Raw Material');
+    setItems([{ type: defaultType, itemName: '', quantity: '' }]);
+  };
 
   const activeSupervisorsList = (formMode === 'consumable' || formMode === 'raw_materials') ? conSupervisors : supervisors;
   
@@ -226,6 +229,12 @@ export default function TrackerPortal() {
       return;
     }
 
+    // Explicit verification ensuring Jira logs accompany raw material context submissions
+    if (formMode === 'raw_materials' && !formData.jiraTicket.trim()) {
+      setMessage({ text: 'Jira Ticket Number is required for raw materials.', isError: true });
+      return;
+    }
+
     setSubmitting(true);
     setMessage({ text: '', isError: false });
 
@@ -267,7 +276,7 @@ export default function TrackerPortal() {
             <h1 className="text-2xl font-bold text-gray-800">Civil Tracker Request Portal</h1>
             <p className="text-gray-500 text-sm mt-1">Please select the type of items you wish to issue</p>
           </div>
-          <div className="flex flex-col gap-3 animate-fade-in">
+          <div className="flex flex-col gap-3">
             <button
               onClick={() => handleModeSelection('returnable')}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 px-4 rounded-md transition-all text-sm shadow-sm"
@@ -300,7 +309,7 @@ export default function TrackerPortal() {
 
   return (
     <main className="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8 relative pt-14 sm:pt-16 animate-fade-in">
+      <div className="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 sm:p-8 relative pt-14 sm:pt-16">
         
         <button
           type="button"
@@ -322,15 +331,18 @@ export default function TrackerPortal() {
             
             {/* SUPERVISOR DROPDOWN */}
             <div className="flex flex-col space-y-1 relative col-span-1 sm:col-span-2" ref={supervisorRef}>
-              <label className="text-sm font-medium text-gray-700">Supervisor Name</label>
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium text-gray-700">Supervisor Name</label>
+                {loading && <span className="text-xs text-blue-500 animate-pulse">Syncing catalog...</span>}
+              </div>
               <div className="relative">
                 <input
                   type="text"
                   required
-                  placeholder="🔍 Search & select supervisor..."
+                  placeholder={loading ? "Loading lists..." : "🔍 Search & select supervisor..."}
                   className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                   value={supSearch}
-                  onFocus={() => setSupOpen(true)}
+                  onFocus={() => !loading && setSupOpen(true)}
                   onChange={(e) => {
                     setSupSearch(e.target.value);
                     setSupOpen(true);
@@ -388,6 +400,21 @@ export default function TrackerPortal() {
               </div>
             </div>
 
+            {/* JIRA TICKET NO. FIELD (Only displays for raw materials mode) */}
+            {formMode === 'raw_materials' && (
+              <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
+                <label className="text-sm font-medium text-gray-700">Jira Ticket No.</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. CIV-1234"
+                  className="w-full bg-gray-50 border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
+                  value={formData.jiraTicket}
+                  onChange={(e) => setFormData({ ...formData, jiraTicket: e.target.value })}
+                />
+              </div>
+            )}
+
             {/* LOCATION SITE */}
             <div className="flex flex-col space-y-1 col-span-1 sm:col-span-2">
               <label className="text-sm font-medium text-gray-700">Location / Site</label>
@@ -429,7 +456,7 @@ export default function TrackerPortal() {
                   if (formMode === 'returnable') {
                     masterList = item.type === 'Tools' ? tools : machines;
                   } else if (formMode === 'raw_materials') {
-                    masterList = rawItems; // Use raw materials list mapping
+                    masterList = rawItems;
                   }
 
                   const currentSearch = itemSearch[index] || '';
@@ -464,10 +491,10 @@ export default function TrackerPortal() {
                           <input
                             type="text"
                             required
-                            placeholder="🔍 Search item designations..."
+                            placeholder={loading ? "Loading catalog parameters..." : "🔍 Search item designations..."}
                             className="w-full bg-white border border-gray-300 rounded-md p-2 text-sm text-gray-800 focus:ring-1 focus:ring-blue-500 outline-none"
                             value={currentSearch}
-                            onFocus={() => setItemOpen({ ...itemOpen, [index]: true })}
+                            onFocus={() => !loading && setItemOpen({ ...itemOpen, [index]: true })}
                             onChange={(e) => {
                               setItemSearch({ ...itemSearch, [index]: e.target.value });
                               setItemOpen({ ...itemOpen, [index]: true });

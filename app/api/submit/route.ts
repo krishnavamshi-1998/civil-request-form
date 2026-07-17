@@ -7,15 +7,16 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { supervisor, location, expectedReturn, issuedTo, items, formClass } = body;
 
-    if (!supervisor || !items || items.length === 0) {
-      return NextResponse.json({ success: false, error: 'Missing information.' }, { status: 400 });
+    if (!supervisor || !items || !Array.isArray(items) || items.length === 0) {
+      return NextResponse.json({ success: false, error: 'Missing or invalid required information.' }, { status: 400 });
     }
 
     const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
     let privateKey = process.env.GOOGLE_PRIVATE_KEY;
     const spreadsheetId = process.env.GOOGLE_SHEET_ID;
 
-    if (!privateKey || !email || !spreadsheetId) throw new Error('Missing keys.');
+    if (!privateKey || !email || !spreadsheetId) throw new Error('Missing environment configuration keys.');
+    
     privateKey = privateKey.startsWith('"') && privateKey.endsWith('"') ? privateKey.slice(1, -1) : privateKey;
     privateKey = privateKey.replace(/\\n/g, '\n');
 
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     // ===================================================================================
-    // 🔍 FIXED LOOKUP: FETCH CONTACT FROM "Tools and Machines Master Stock" (ROW 2 HEADERS)
+    // 🔍 LOOKUP: FETCH CONTACT FROM "Tools and Machines Master Stock" (ROW 2 HEADERS)
     // ===================================================================================
     let supervisorMobile = '';
     try {
@@ -58,8 +59,10 @@ export async function POST(request: Request) {
     } catch (lookupError) {
       console.error("Failed to fetch contact from Tools and Machines Master Stock lookup system:", lookupError);
     }
-    // ===================================================================================
 
+    // ===================================================================================
+    // 📅 TIME STAMP GENERATION (IST)
+    // ===================================================================================
     const now = new Date();
     const parts = new Intl.DateTimeFormat('en-IN', { 
       timeZone: 'Asia/Kolkata', 
@@ -81,6 +84,9 @@ export async function POST(request: Request) {
 
     const timestamp = `${d}/${m}/${y} ${hr}:${min}:${sec}`;
 
+    // ===================================================================================
+    // 📝 SHEET DYNAMIC APPEND FUNCTION
+    // ===================================================================================
     async function appendToSheetDynamic(sheetName: string, targetItems: any[]) {
       if (targetItems.length === 0) return;
 
@@ -99,7 +105,8 @@ export async function POST(request: Request) {
       const idxReturn = cleanHeaders.findIndex(h => h.includes('return'));
 
       const rowsToAppend = targetItems.map((item: any) => {
-        const maxIndex = Math.max(idxSNo, idxTimestamp, idxSupervisor, idxMobile, idxLocation, idxIssuedTo, idxItemName, idxQuantity, idxReturn);
+        // Prevents Math.max yielding -1 if headers don't match up perfectly
+        const maxIndex = Math.max(0, idxSNo, idxTimestamp, idxSupervisor, idxMobile, idxLocation, idxIssuedTo, idxItemName, idxQuantity, idxReturn);
         const rowData = new Array(maxIndex + 1).fill('');
 
         if (idxSNo !== -1) rowData[idxSNo] = '=ROW()-1';
@@ -110,10 +117,7 @@ export async function POST(request: Request) {
         if (idxIssuedTo !== -1) rowData[idxIssuedTo] = String(issuedTo).trim();
         if (idxItemName !== -1) rowData[idxItemName] = String(item.itemName || 'Unknown').trim();
         if (idxQuantity !== -1) rowData[idxQuantity] = Number(item.quantity) || 1;
-        
-        if (idxReturn !== -1) {
-          rowData[idxReturn] = String(expectedReturn || '').trim();
-        }
+        if (idxReturn !== -1) rowData[idxReturn] = String(expectedReturn || '').trim();
 
         return rowData;
       });
@@ -134,7 +138,10 @@ export async function POST(request: Request) {
     } else {
       const toolItems = items.filter((item: any) => !String(item.type).toLowerCase().includes('machine'));
       const machineItems = items.filter((item: any) => String(item.type).toLowerCase().includes('machine'));
-      await Promise.all([appendToSheetDynamic('Tools', toolItems), appendToSheetDynamic('Machines', machineItems)]);
+      await Promise.all([
+        appendToSheetDynamic('Tools', toolItems), 
+        appendToSheetDynamic('Machines', machineItems)
+      ]);
     }
 
     // ==========================================
@@ -155,7 +162,9 @@ export async function POST(request: Request) {
         if (formClass === 'consumable') formTypeName = 'Consumables';
         if (formClass === 'raw_materials') formTypeName = 'Raw Materials';
 
-        const itemRowsHtml = (items || []).map((i: any) => `<li><strong>[${i.type || formTypeName}]</strong> ${i.itemName || ''} — Qty: ${i.quantity || 1}</li>`).join('');
+        const itemRowsHtml = items.map((i: any) => 
+          `<li><strong>[${i.type || formTypeName}]</strong> ${i.itemName || 'Unknown Item'} — Qty: ${i.quantity || 1}</li>`
+        ).join('');
 
         const mailOptions = {
           from: `"Material Portal Alert" <${senderEmail}>`,
@@ -169,9 +178,9 @@ export async function POST(request: Request) {
                 <tbody>
                   <tr><td style="padding: 6px 0; font-weight: bold; width: 150px;">Form Type:</td><td>${formTypeName}</td></tr>
                   <tr><td style="padding: 6px 0; font-weight: bold;">Supervisor:</td><td>${supervisor}</td></tr>
-                  <tr><td style="padding: 6px 0; font-weight: bold;">Mobile Line:</td><td>${supervisorMobile || 'Fetched from Master Sheet'}</td></tr>
-                  <tr><td style="padding: 6px 0; font-weight: bold;">Site Location:</td><td>${location}</td></tr>
-                  <tr><td style="padding: 6px 0; font-weight: bold;">Issued To:</td><td>${issuedTo}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold;">Mobile Line:</td><td>${supervisorMobile || 'Not Found in Master Sheet'}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold;">Site Location:</td><td>${location || 'N/A'}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold;">Issued To:</td><td>${issuedTo || 'N/A'}</td></tr>
                   <tr><td style="padding: 6px 0; font-weight: bold;">Expected Return:</td><td>${expectedReturn || 'N/A'}</td></tr>
                   <tr><td style="padding: 6px 0; font-weight: bold;">Timestamp:</td><td>${timestamp}</td></tr>
                 </tbody>
@@ -194,6 +203,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    console.error("Critical server failure:", error);
     return NextResponse.json({ success: false, error: error.message || 'Server side failure.' }, { status: 500 });
   }
 }
