@@ -94,8 +94,22 @@ export async function POST(request: Request) {
     ) {
       if (targetItems.length === 0) return;
 
-      const headerResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!1:1` });
-      const headers = headerResponse.data.values?.[0] || [];
+      // 🛠️ Grab rows 1 AND 2 to dynamically handle sheets with offset header rows
+      const headerResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!1:2` });
+      const rows = headerResponse.data.values || [];
+      
+      // Determine which row actually holds the headers (looking for common keywords like "timestamp" or "name")
+      let headers: any[] = rows[0] || [];
+      if (rows.length > 1) {
+        const row1Str = JSON.stringify(rows[0]).toLowerCase();
+        const row2Str = JSON.stringify(rows[1]).toLowerCase();
+        
+        // If row 2 looks more like a header row than row 1, use row 2
+        if (row2Str.includes('timestamp') || row2Str.includes('supervisor') || row2Str.includes('issued to') || row2Str.includes('jira')) {
+          headers = rows[1];
+        }
+      }
+
       const cleanHeaders = headers.map(h => String(h).trim().toLowerCase().replace(/\s+/g, ' '));
 
       const idxSNo = cleanHeaders.findIndex(h => h.includes('s. no') || h.includes('s.no') || h === 'sl');
@@ -108,8 +122,13 @@ export async function POST(request: Request) {
       const idxQuantity = cleanHeaders.indexOf('quantity');
       const idxReturn = cleanHeaders.findIndex(h => h.includes('return'));
       
-      // Look up column with header matching variations of "Jira Ticket No"
-      const idxJira = cleanHeaders.findIndex(h => h.includes('jira ticket no') || h.includes('jira ticket') || h.includes('jira'));
+      // Highly accommodating check for "Jira Ticket No." variations (including the dot)
+      const idxJira = cleanHeaders.findIndex(h => 
+        h.includes('jira ticket no') || 
+        h.includes('jira ticket no.') || 
+        h.includes('jira ticket') || 
+        h === 'jira'
+      );
 
       const rowsToAppend = targetItems.map((item: any) => {
         const maxIndex = Math.max(0, idxSNo, idxTimestamp, idxSupervisor, idxMobile, idxLocation, idxIssuedTo, idxItemName, idxQuantity, idxReturn, idxJira);
@@ -125,7 +144,7 @@ export async function POST(request: Request) {
         if (idxQuantity !== -1) rowData[idxQuantity] = Number(item.quantity) || 1;
         if (idxReturn !== -1) rowData[idxReturn] = String(meta.expectedReturn || '').trim();
         
-        // Write the Jira value to its evaluated column mapping safely
+        // Populate alphanumeric and purely numeric values seamlessly
         if (idxJira !== -1) rowData[idxJira] = String(meta.jiraTicketNo || '').trim();
 
         return rowData;
@@ -133,7 +152,7 @@ export async function POST(request: Request) {
 
       await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${sheetName}!A:Z`,
+        range: `${sheetName}!A:AZ`, // 🛠️ Expanded boundary safety net (A to AZ)
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: rowsToAppend },
       });
