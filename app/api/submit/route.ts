@@ -5,7 +5,7 @@ import nodemailer from 'nodemailer';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { supervisor, location, expectedReturn, issuedTo, items, formClass } = body;
+    const { supervisor, location, expectedReturn, issuedTo, items, formClass, jiraTicketNo } = body;
 
     if (!supervisor || !items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, error: 'Missing or invalid required information.' }, { status: 400 });
@@ -87,7 +87,11 @@ export async function POST(request: Request) {
     // ===================================================================================
     // 📝 SHEET DYNAMIC APPEND FUNCTION
     // ===================================================================================
-    async function appendToSheetDynamic(sheetName: string, targetItems: any[]) {
+    async function appendToSheetDynamic(
+      sheetName: string, 
+      targetItems: any[], 
+      meta: { supervisor: string; location?: string; issuedTo?: string; expectedReturn?: string; jiraTicketNo?: string }
+    ) {
       if (targetItems.length === 0) return;
 
       const headerResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!1:1` });
@@ -103,21 +107,26 @@ export async function POST(request: Request) {
       const idxItemName = cleanHeaders.findIndex(h => h.includes('name') && (h.includes('tool') || h.includes('machine') || h.includes('item')));
       const idxQuantity = cleanHeaders.indexOf('quantity');
       const idxReturn = cleanHeaders.findIndex(h => h.includes('return'));
+      
+      // Look up column with header matching variations of "Jira Ticket No"
+      const idxJira = cleanHeaders.findIndex(h => h.includes('jira ticket no') || h.includes('jira ticket') || h.includes('jira'));
 
       const rowsToAppend = targetItems.map((item: any) => {
-        // Prevents Math.max yielding -1 if headers don't match up perfectly
-        const maxIndex = Math.max(0, idxSNo, idxTimestamp, idxSupervisor, idxMobile, idxLocation, idxIssuedTo, idxItemName, idxQuantity, idxReturn);
+        const maxIndex = Math.max(0, idxSNo, idxTimestamp, idxSupervisor, idxMobile, idxLocation, idxIssuedTo, idxItemName, idxQuantity, idxReturn, idxJira);
         const rowData = new Array(maxIndex + 1).fill('');
 
         if (idxSNo !== -1) rowData[idxSNo] = '=ROW()-1';
         if (idxTimestamp !== -1) rowData[idxTimestamp] = timestamp;
-        if (idxSupervisor !== -1) rowData[idxSupervisor] = String(supervisor).trim();
+        if (idxSupervisor !== -1) rowData[idxSupervisor] = String(meta.supervisor).trim();
         if (idxMobile !== -1) rowData[idxMobile] = supervisorMobile; 
-        if (idxLocation !== -1) rowData[idxLocation] = String(location).trim();
-        if (idxIssuedTo !== -1) rowData[idxIssuedTo] = String(issuedTo).trim();
+        if (idxLocation !== -1) rowData[idxLocation] = String(meta.location || '').trim();
+        if (idxIssuedTo !== -1) rowData[idxIssuedTo] = String(meta.issuedTo || '').trim();
         if (idxItemName !== -1) rowData[idxItemName] = String(item.itemName || 'Unknown').trim();
         if (idxQuantity !== -1) rowData[idxQuantity] = Number(item.quantity) || 1;
-        if (idxReturn !== -1) rowData[idxReturn] = String(expectedReturn || '').trim();
+        if (idxReturn !== -1) rowData[idxReturn] = String(meta.expectedReturn || '').trim();
+        
+        // Write the Jira value to its evaluated column mapping safely
+        if (idxJira !== -1) rowData[idxJira] = String(meta.jiraTicketNo || '').trim();
 
         return rowData;
       });
@@ -130,17 +139,20 @@ export async function POST(request: Request) {
       });
     }
 
+    // Prepare arguments metadata object payload wrapper
+    const metaArgs = { supervisor, location, expectedReturn, issuedTo, jiraTicketNo };
+
     // Match output destinations cleanly
     if (formClass === 'consumable') {
-      await appendToSheetDynamic('Consumables', items);
+      await appendToSheetDynamic('Consumables', items, metaArgs);
     } else if (formClass === 'raw_materials') {
-      await appendToSheetDynamic('Raw Materials', items); 
+      await appendToSheetDynamic('Raw Materials', items, metaArgs); 
     } else {
       const toolItems = items.filter((item: any) => !String(item.type).toLowerCase().includes('machine'));
       const machineItems = items.filter((item: any) => String(item.type).toLowerCase().includes('machine'));
       await Promise.all([
-        appendToSheetDynamic('Tools', toolItems), 
-        appendToSheetDynamic('Machines', machineItems)
+        appendToSheetDynamic('Tools', toolItems, metaArgs), 
+        appendToSheetDynamic('Machines', machineItems, metaArgs)
       ]);
     }
 
@@ -182,6 +194,7 @@ export async function POST(request: Request) {
                   <tr><td style="padding: 6px 0; font-weight: bold;">Site Location:</td><td>${location || 'N/A'}</td></tr>
                   <tr><td style="padding: 6px 0; font-weight: bold;">Issued To:</td><td>${issuedTo || 'N/A'}</td></tr>
                   <tr><td style="padding: 6px 0; font-weight: bold;">Expected Return:</td><td>${expectedReturn || 'N/A'}</td></tr>
+                  <tr><td style="padding: 6px 0; font-weight: bold;">Jira Ticket:</td><td>${jiraTicketNo || 'N/A'}</td></tr>
                   <tr><td style="padding: 6px 0; font-weight: bold;">Timestamp:</td><td>${timestamp}</td></tr>
                 </tbody>
               </table>
