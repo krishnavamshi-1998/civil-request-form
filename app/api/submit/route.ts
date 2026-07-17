@@ -5,7 +5,10 @@ import nodemailer from 'nodemailer';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { supervisor, location, expectedReturn, issuedTo, items, formClass, jiraTicketNo } = body;
+    
+    // 🛠️ Grab the value dynamically, covering whatever key-name your frontend is using!
+    const jiraTicketNo = body.jiraTicketNumber || body.jiraTicketNo || body.jiraTicket || '';
+    const { supervisor, location, expectedReturn, issuedTo, items, formClass } = body;
 
     if (!supervisor || !items || !Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ success: false, error: 'Missing or invalid required information.' }, { status: 400 });
@@ -38,13 +41,11 @@ export async function POST(request: Request) {
       const masterRows = masterStockResponse.data.values || [];
       
       if (masterRows.length > 1) {
-        // Headers are on Row 2 (Index 1)
         const masterHeaders = masterRows[1].map(h => String(h).trim().toLowerCase());
         const supNameIdx = masterHeaders.findIndex(h => h.includes('supervisor name') || h === 'supervisor');
         const supContactIdx = masterHeaders.findIndex(h => h.includes('supervisor contact') || h === 'contact');
 
         if (supNameIdx !== -1 && supContactIdx !== -1) {
-          // Scan actual data starting from Row 3 (Index 2)
           const matchedRow = masterRows.slice(2).find(row => {
             const cellValue = row[supNameIdx] ? String(row[supNameIdx]).trim().toLowerCase() : '';
             const searchValue = String(supervisor).trim().toLowerCase();
@@ -94,17 +95,14 @@ export async function POST(request: Request) {
     ) {
       if (targetItems.length === 0) return;
 
-      // 🛠️ Grab rows 1 AND 2 to dynamically handle sheets with offset header rows
       const headerResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!1:2` });
       const rows = headerResponse.data.values || [];
       
-      // Determine which row actually holds the headers (looking for common keywords like "timestamp" or "name")
       let headers: any[] = rows[0] || [];
       if (rows.length > 1) {
         const row1Str = JSON.stringify(rows[0]).toLowerCase();
         const row2Str = JSON.stringify(rows[1]).toLowerCase();
         
-        // If row 2 looks more like a header row than row 1, use row 2
         if (row2Str.includes('timestamp') || row2Str.includes('supervisor') || row2Str.includes('issued to') || row2Str.includes('jira')) {
           headers = rows[1];
         }
@@ -122,10 +120,10 @@ export async function POST(request: Request) {
       const idxQuantity = cleanHeaders.indexOf('quantity');
       const idxReturn = cleanHeaders.findIndex(h => h.includes('return'));
       
-      // Highly accommodating check for "Jira Ticket No." variations (including the dot)
+      // 🛠️ UPDATED: Perfect match logic targeting "Jira Ticket Number" (without trailing dots)
       const idxJira = cleanHeaders.findIndex(h => 
+        h.includes('jira ticket number') || 
         h.includes('jira ticket no') || 
-        h.includes('jira ticket no.') || 
         h.includes('jira ticket') || 
         h === 'jira'
       );
@@ -144,7 +142,7 @@ export async function POST(request: Request) {
         if (idxQuantity !== -1) rowData[idxQuantity] = Number(item.quantity) || 1;
         if (idxReturn !== -1) rowData[idxReturn] = String(meta.expectedReturn || '').trim();
         
-        // Populate alphanumeric and purely numeric values seamlessly
+        // Writes the value (regardless of if it is a number or text) directly into the mapped cell
         if (idxJira !== -1) rowData[idxJira] = String(meta.jiraTicketNo || '').trim();
 
         return rowData;
@@ -152,13 +150,12 @@ export async function POST(request: Request) {
 
       await sheets.spreadsheets.values.append({
         spreadsheetId,
-        range: `${sheetName}!A:AZ`, // 🛠️ Expanded boundary safety net (A to AZ)
+        range: `${sheetName}!A:AZ`, 
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: rowsToAppend },
       });
     }
 
-    // Prepare arguments metadata object payload wrapper
     const metaArgs = { supervisor, location, expectedReturn, issuedTo, jiraTicketNo };
 
     // Match output destinations cleanly
