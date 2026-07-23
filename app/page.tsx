@@ -24,7 +24,7 @@ export default function TrackerPortal() {
     jiraTicket: '', // Added tracking key for Jira ticket data allocation
   });
 
-  const [department, setDepartment] = useState<'Fabrication' | 'Other'>('Fabrication');
+  const [department, setDepartment] = useState<'Civil' | 'Other'>('Civil');
   const [items, setItems] = useState<FormItem[]>([
     { type: 'Tools', itemName: '', quantity: '' }
   ]);
@@ -137,14 +137,14 @@ export default function TrackerPortal() {
   useEffect(() => {
     setFormData(prev => ({
       ...prev,
-      issuedTo: department === 'Fabrication' ? 'Civil Dept' : 'Other Depts'
+      issuedTo: department === 'Civil' ? 'Civil Dept' : 'Other Depts'
     }));
   }, [department]);
 
   const handleModeSelection = (mode: 'returnable' | 'consumable' | 'raw_materials') => {
     setFormMode(mode);
     setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept', jiraTicket: '' });
-    setDepartment('Fabrication');
+    setDepartment('Civil');
     setSupSearch('');
     setItemSearch({});
     
@@ -160,7 +160,7 @@ export default function TrackerPortal() {
     sessionStorage.removeItem('civil_sup_search');
     sessionStorage.removeItem('civil_item_search');
     setFormData({ supervisor: '', location: '', expectedReturn: '', issuedTo: 'Civil Dept', jiraTicket: '' });
-    setDepartment('Fabrication');
+    setDepartment('Civil');
     setSupSearch('');
     setItemSearch({});
     const defaultType = formMode === 'returnable' ? 'Tools' : (formMode === 'consumable' ? 'Consumable' : 'Raw Material');
@@ -381,9 +381,9 @@ export default function TrackerPortal() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setDepartment('Fabrication')}
+                  onClick={() => setDepartment('Civil')}
                   className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all duration-150 ${
-                    department === 'Fabrication' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
+                    department === 'Civil' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-100'
                   }`}
                 >
                   Civil Dept
